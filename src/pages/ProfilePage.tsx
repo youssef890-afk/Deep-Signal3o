@@ -4,19 +4,17 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import Avatar from '@/components/Avatar';
 import PostCard from '@/components/PostCard';
-import { Loader2, Camera, Edit3, Check, X, MessageCircle, UserPlus, UserCheck } from 'lucide-react';
+import { EditProfileModal } from '@/components/EditProfileModal';
+import { Loader2, Camera, Edit3, MessageCircle, UserPlus, UserCheck } from 'lucide-react';
 import type { Profile, PostWithDetails } from '@/types';
 
 export default function ProfilePage() {
   const { userId } = useParams();
-  const { user, profile: myProfile, refreshProfile } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<PostWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState('');
-  const [editBio, setEditBio] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -81,7 +79,6 @@ export default function ProfilePage() {
       .eq('follower_id', userId);
     setFollowingCount(fgCount ?? 0);
 
-    // Check if current user follows this profile
     if (user && !isOwnProfile) {
       const { data: followData } = await supabase
         .from('follows')
@@ -98,22 +95,6 @@ export default function ProfilePage() {
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
-
-  const handleSaveEdit = async () => {
-    if (!user) return;
-    setSaving(true);
-    const { error } = await supabase
-      .from('profiles')
-      .update({ full_name: editName.trim() || null, bio: editBio.trim() || null })
-      .eq('id', user.id);
-
-    if (!error) {
-      await refreshProfile();
-      setProfile((prev) => prev ? { ...prev, full_name: editName.trim() || null, bio: editBio.trim() || null } : prev);
-      setEditing(false);
-    }
-    setSaving(false);
-  };
 
   const handleFollow = async () => {
     if (!user || !userId) return;
@@ -186,111 +167,70 @@ export default function ProfilePage() {
         </div>
 
         <div className="flex-1 text-center sm:text-left">
-          {editing ? (
-            <div className="space-y-3">
-              <input
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                placeholder="Full name"
-                className="w-full bg-neutral-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50"
-              />
-              <textarea
-                value={editBio}
-                onChange={(e) => setEditBio(e.target.value)}
-                placeholder="Bio"
-                rows={2}
-                maxLength={150}
-                className="w-full bg-neutral-800 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 resize-none"
-              />
-              <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
+            <h1 className="text-2xl font-bold text-white">{profile.username}</h1>
+            <div className="flex items-center gap-2 justify-center">
+              {isOwnProfile ? (
                 <button
-                  onClick={handleSaveEdit}
-                  disabled={saving}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white text-sm font-medium rounded-lg transition-colors"
+                  onClick={() => setIsEditModalOpen(true)}
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white text-sm font-medium rounded-lg transition-colors border border-white/10"
                 >
-                  <Check className="w-4 h-4" /> Save
+                  <Edit3 className="w-3.5 h-3.5" /> تعديل البروفايل الإعدادات
                 </button>
-                <button
-                  onClick={() => setEditing(false)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white text-sm font-medium rounded-lg transition-colors"
-                >
-                  <X className="w-4 h-4" /> Cancel
-                </button>
-              </div>
+              ) : (
+                <>
+                  <button
+                    onClick={handleFollow}
+                    className={`flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${
+                      isFollowing
+                        ? 'bg-neutral-800 text-white hover:bg-neutral-700'
+                        : 'bg-gradient-to-r from-rose-500 to-pink-600 text-white hover:opacity-90'
+                    }`}
+                  >
+                    {isFollowing ? (
+                      <><UserCheck className="w-3.5 h-3.5" /> Following</>
+                    ) : (
+                      <><UserPlus className="w-3.5 h-3.5" /> Follow</>
+                    )}
+                  </button>
+                  <a
+                    href={`/chat/${profile.id}`}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white text-sm font-medium rounded-lg transition-colors"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" /> Message
+                  </a>
+                </>
+              )}
             </div>
-          ) : (
-            <>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
-                <h1 className="text-2xl font-bold text-white">{profile.username}</h1>
-                <div className="flex items-center gap-2 justify-center">
-                  {isOwnProfile ? (
-                    <button
-                      onClick={() => {
-                        setEditName(profile.full_name || '');
-                        setEditBio(profile.bio || '');
-                        setEditing(true);
-                      }}
-                      className="flex items-center gap-1.5 px-4 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white text-sm font-medium rounded-lg transition-colors"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" /> Edit Profile
-                    </button>
-                  ) : (
-                    <>
-                      <button
-                        onClick={handleFollow}
-                        className={`flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${
-                          isFollowing
-                            ? 'bg-neutral-800 text-white hover:bg-neutral-700'
-                            : 'bg-gradient-to-r from-rose-500 to-pink-600 text-white hover:opacity-90'
-                        }`}
-                      >
-                        {isFollowing ? (
-                          <><UserCheck className="w-3.5 h-3.5" /> Following</>
-                        ) : (
-                          <><UserPlus className="w-3.5 h-3.5" /> Follow</>
-                        )}
-                      </button>
-                      <a
-                        href={`/chat/${profile.id}`}
-                        className="flex items-center gap-1.5 px-4 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white text-sm font-medium rounded-lg transition-colors"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" /> Message
-                      </a>
-                    </>
-                  )}
-                </div>
-              </div>
+          </div>
 
-              {/* Stats */}
-              <div className="flex items-center gap-6 mb-3 justify-center sm:justify-start">
-                <div>
-                  <span className="font-bold text-white">{posts.length}</span>{' '}
-                  <span className="text-neutral-400 text-sm">posts</span>
-                </div>
-                <div>
-                  <span className="font-bold text-white">{followersCount}</span>{' '}
-                  <span className="text-neutral-400 text-sm">followers</span>
-                </div>
-                <div>
-                  <span className="font-bold text-white">{followingCount}</span>{' '}
-                  <span className="text-neutral-400 text-sm">following</span>
-                </div>
-              </div>
+          {/* Stats */}
+          <div className="flex items-center gap-6 mb-3 justify-center sm:justify-start">
+            <div>
+              <span className="font-bold text-white">{posts.length}</span>{' '}
+              <span className="text-neutral-400 text-sm">posts</span>
+            </div>
+            <div>
+              <span className="font-bold text-white">{followersCount}</span>{' '}
+              <span className="text-neutral-400 text-sm">followers</span>
+            </div>
+            <div>
+              <span className="font-bold text-white">{followingCount}</span>{' '}
+              <span className="text-neutral-400 text-sm">following</span>
+            </div>
+          </div>
 
-              {/* Bio */}
-              <div>
-                {profile.full_name && (
-                  <p className="font-semibold text-white text-sm">{profile.full_name}</p>
-                )}
-                {profile.bio ? (
-                  <p className="text-neutral-300 text-sm leading-relaxed">{profile.bio}</p>
-                ) : (
-                  isOwnProfile && <p className="text-neutral-600 text-sm italic">No bio yet. Edit your profile to add one.</p>
-                )}
-              </div>
-            </>
-          )}
+          {/* Bio */}
+          <div>
+            {profile.full_name && (
+              <p className="font-semibold text-white text-sm">{profile.full_name}</p>
+            )}
+            {profile.bio ? (
+              <p className="text-neutral-300 text-sm leading-relaxed">{profile.bio}</p>
+            ) : (
+              isOwnProfile && <p className="text-neutral-600 text-sm italic">No bio yet. Edit your profile to add one.</p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -316,6 +256,18 @@ export default function ProfilePage() {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Edit Profile Modal */}
+      {isEditModalOpen && (
+        <EditProfileModal
+          profile={profile}
+          onClose={() => setIsEditModalOpen(false)}
+          onUpdate={() => {
+            loadProfile();
+            refreshProfile();
+          }}
+        />
       )}
     </div>
   );
