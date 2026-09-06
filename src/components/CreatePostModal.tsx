@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext'; // <--- أضف هذا السطر (عدل المسار)
 import EditProfileModal from '@/components/EditProfileModal';
 import { ImagePlus, X, Loader2, Sparkles } from 'lucide-react';
 
@@ -47,6 +48,7 @@ export default function CreatePostModal({ onPosted }: CreatePostProps) {
     const { error } = await supabase.from('posts').insert({
       image_url: imagePreview,
       caption: caption.trim() || null,
+      user_id: user.id, // <--- أضف هذا السطر (مطلوب لقاعدة البيانات)
     });
 
     if (error) {
