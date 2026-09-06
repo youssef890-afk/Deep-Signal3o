@@ -13,6 +13,9 @@ import { Home, MessageCircle, User, Search as SearchIcon, Signal, Mic } from 'lu
 import { Loader2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
+// =============================================
+// 1. تخطيط الصفحات المحمية (بـ Sidebar + MobileNav)
+// =============================================
 function ProtectedLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-black">
@@ -23,6 +26,9 @@ function ProtectedLayout({ children }: { children: ReactNode }) {
   );
 }
 
+// =============================================
+// 2. شريط التنقل السفلي (Mobile Navigation)
+// =============================================
 function MobileNav() {
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -60,9 +66,13 @@ function MobileNav() {
   );
 }
 
+// =============================================
+// 3. بوابة المصادقة (Auth Gate)
+// =============================================
 function AuthGate() {
   const { session, loading } = useAuth();
 
+  // شاشة التحميل
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center">
@@ -74,6 +84,7 @@ function AuthGate() {
     );
   }
 
+  // إذا لم يكن مسجلاً → صفحات الدخول
   if (!session) {
     return (
       <Routes>
@@ -84,6 +95,7 @@ function AuthGate() {
     );
   }
 
+  // إذا كان مسجلاً → التطبيق كامل
   return (
     <Routes>
       <Route path="/feed" element={<ProtectedLayout><FeedPage /></ProtectedLayout>} />
@@ -98,6 +110,9 @@ function AuthGate() {
   );
 }
 
+// =============================================
+// 4. التطبيق الرئيسي
+// =============================================
 export default function App() {
   return (
     <AuthProvider>
