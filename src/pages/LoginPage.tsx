@@ -26,7 +26,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden bg-black text-white">
       {/* Background glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-20%] left-[10%] w-[500px] h-[500px] bg-rose-500/10 rounded-full blur-[120px]" />
@@ -34,7 +34,7 @@ export default function LoginPage() {
       </div>
 
       <div className="w-full max-w-md animate-slide-up relative z-10">
-        <div className="glass rounded-3xl p-8 shadow-2xl">
+        <div className="glass rounded-3xl p-8 shadow-2xl bg-neutral-900/80 border border-white/10">
           {/* Logo */}
           <div className="flex flex-col items-center mb-8">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-500 flex items-center justify-center mb-4 shadow-lg shadow-rose-500/20">
@@ -65,9 +65,17 @@ export default function LoginPage() {
 
             {/* Password */}
             <div>
-              <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider mb-2 block">
-                Password
-              </label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider block">
+                  Password
+                </label>
+                <Link
+                  to="/forgot-password"
+                  className="text-xs text-rose-400 hover:text-rose-300 font-medium transition-colors"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
                 <input
