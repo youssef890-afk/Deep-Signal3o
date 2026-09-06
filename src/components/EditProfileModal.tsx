@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import EditProfileModal from '@/components/EditProfileModal';
 import { X, Loader2 } from 'lucide-react';
 
 export default function EditProfileModal({ profile, onClose, onUpdated }: any) {
