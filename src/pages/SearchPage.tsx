@@ -1,4 +1,3 @@
-
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -42,7 +41,6 @@ export default function SearchPage() {
     <div className="max-w-2xl mx-auto px-4 py-6">
       <h1 className="text-2xl font-bold text-white mb-6">Search</h1>
 
-      {/* Search bar */}
       <div className="relative mb-8">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
         <input
@@ -70,7 +68,6 @@ export default function SearchPage() {
         )}
       </div>
 
-      {/* Results */}
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-rose-500" />
@@ -103,6 +100,7 @@ export default function SearchPage() {
                 onClick={() => navigate(`/profile/${profile.id}`)}
               >
                 <p className="text-sm font-semibold text-white truncate">{profile.username}</p>
+                <p className="text-xs text-neutral-500 truncate">#{profile.display_id}</p>
                 {profile.full_name && (
                   <p className="text-xs text-neutral-500 truncate">{profile.full_name}</p>
                 )}
