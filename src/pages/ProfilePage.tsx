@@ -9,8 +9,11 @@ import { Loader2, Camera, Edit3, MessageCircle, UserPlus, UserCheck } from 'luci
 import type { Profile, PostWithDetails } from '@/types';
 
 export default function ProfilePage() {
+  // جلب معرف المستخدم من الرابط
   const { userId } = useParams();
   const { user, refreshProfile } = useAuth();
+  
+  // حالات الصفحة
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<PostWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,12 +22,15 @@ export default function ProfilePage() {
   const [followingCount, setFollowingCount] = useState(0);
   const [isFollowing, setIsFollowing] = useState(false);
 
+  // هل هذا البروفايل ملكي أنا؟
   const isOwnProfile = user?.id === userId;
 
+  // دالة لجلب كل البيانات
   const loadProfile = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
 
+    // 1. جلب بيانات البروفايل
     const { data: prof } = await supabase
       .from('profiles')
       .select('*')
@@ -32,7 +38,7 @@ export default function ProfilePage() {
       .maybeSingle();
     setProfile(prof as Profile | null);
 
-    // Posts
+    // 2. جلب المنشورات مع بيانات المستخدم
     const { data: postData } = await supabase
       .from('posts')
       .select(`*, profile:profiles!posts_user_id_fkey(*)`)
@@ -46,6 +52,7 @@ export default function ProfilePage() {
         .select('id, post_id, user_id, created_at')
         .in('post_id', postIds);
 
+      // تنظيم الإعجابات حسب المنشور
       const likesByPost = new Map<string, { id: string; post_id: string; user_id: string; created_at: string }[]>();
       likesData?.forEach((l) => {
         const arr = likesByPost.get(l.post_id) ?? [];
@@ -66,19 +73,21 @@ export default function ProfilePage() {
       setPosts(enriched);
     }
 
-    // Followers/following counts
+    // 3. عدد المتابعين
     const { count: fCount } = await supabase
       .from('follows')
       .select('*', { count: 'exact', head: true })
       .eq('following_id', userId);
     setFollowersCount(fCount ?? 0);
 
+    // 4. عدد الذين يتابعهم
     const { count: fgCount } = await supabase
       .from('follows')
       .select('*', { count: 'exact', head: true })
       .eq('follower_id', userId);
     setFollowingCount(fgCount ?? 0);
 
+    // 5. هل أنا أتابع هذا المستخدم؟
     if (user && !isOwnProfile) {
       const { data: followData } = await supabase
         .from('follows')
@@ -92,10 +101,12 @@ export default function ProfilePage() {
     setLoading(false);
   }, [userId, user, isOwnProfile]);
 
+  // تحميل البيانات عند فتح الصفحة أو تغيير userId
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
 
+  // دالة المتابعة/إلغاء المتابعة
   const handleFollow = async () => {
     if (!user || !userId) return;
     if (isFollowing) {
@@ -109,6 +120,7 @@ export default function ProfilePage() {
     }
   };
 
+  // رفع الصورة الشخصية
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
@@ -118,7 +130,7 @@ export default function ProfilePage() {
 
     const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file);
     if (uploadError) {
-      alert('Failed to upload avatar: ' + uploadError.message);
+      alert('فشل رفع الصورة: ' + uploadError.message);
       return;
     }
 
@@ -134,6 +146,7 @@ export default function ProfilePage() {
     }
   };
 
+  // شاشة التحميل
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -142,10 +155,11 @@ export default function ProfilePage() {
     );
   }
 
+  // إذا لم يتم العثور على المستخدم
   if (!profile) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <p className="text-neutral-400">User not found.</p>
+        <p className="text-neutral-400">المستخدم غير موجود.</p>
       </div>
     );
   }
@@ -154,8 +168,9 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6">
-      {/* Profile header */}
+      {/* رأس البروفايل */}
       <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 mb-8 animate-fade-in">
+        {/* الصورة الشخصية */}
         <div className="relative group">
           <Avatar src={profile.avatar_url} name={displayName} size="2xl" ring />
           {isOwnProfile && (
@@ -175,7 +190,7 @@ export default function ProfilePage() {
                   onClick={() => setIsEditModalOpen(true)}
                   className="flex items-center gap-1.5 px-4 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white text-sm font-medium rounded-lg transition-colors border border-white/10"
                 >
-                  <Edit3 className="w-3.5 h-3.5" /> تعديل البروفايل الإعدادات
+                  <Edit3 className="w-3.5 h-3.5" /> تعديل البروفايل
                 </button>
               ) : (
                 <>
@@ -188,39 +203,39 @@ export default function ProfilePage() {
                     }`}
                   >
                     {isFollowing ? (
-                      <><UserCheck className="w-3.5 h-3.5" /> Following</>
+                      <><UserCheck className="w-3.5 h-3.5" /> متابع</>
                     ) : (
-                      <><UserPlus className="w-3.5 h-3.5" /> Follow</>
+                      <><UserPlus className="w-3.5 h-3.5" /> متابعة</>
                     )}
                   </button>
                   <a
                     href={`/chat/${profile.id}`}
                     className="flex items-center gap-1.5 px-4 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white text-sm font-medium rounded-lg transition-colors"
                   >
-                    <MessageCircle className="w-3.5 h-3.5" /> Message
+                    <MessageCircle className="w-3.5 h-3.5" /> رسالة
                   </a>
                 </>
               )}
             </div>
           </div>
 
-          {/* Stats */}
+          {/* الإحصائيات */}
           <div className="flex items-center gap-6 mb-3 justify-center sm:justify-start">
             <div>
               <span className="font-bold text-white">{posts.length}</span>{' '}
-              <span className="text-neutral-400 text-sm">posts</span>
+              <span className="text-neutral-400 text-sm">منشور</span>
             </div>
             <div>
               <span className="font-bold text-white">{followersCount}</span>{' '}
-              <span className="text-neutral-400 text-sm">followers</span>
+              <span className="text-neutral-400 text-sm">متابع</span>
             </div>
             <div>
               <span className="font-bold text-white">{followingCount}</span>{' '}
-              <span className="text-neutral-400 text-sm">following</span>
+              <span className="text-neutral-400 text-sm">يتابع</span>
             </div>
           </div>
 
-          {/* Bio */}
+          {/* السيرة الذاتية */}
           <div>
             {profile.full_name && (
               <p className="font-semibold text-white text-sm">{profile.full_name}</p>
@@ -228,28 +243,28 @@ export default function ProfilePage() {
             {profile.bio ? (
               <p className="text-neutral-300 text-sm leading-relaxed">{profile.bio}</p>
             ) : (
-              isOwnProfile && <p className="text-neutral-600 text-sm italic">No bio yet. Edit your profile to add one.</p>
+              isOwnProfile && <p className="text-neutral-600 text-sm italic">لا توجد سيرة ذاتية. قم بتعديل بروفايلك لإضافة واحدة.</p>
             )}
           </div>
         </div>
       </div>
 
-      {/* Posts grid */}
+      {/* قائمة المنشورات */}
       {posts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-4">
             <Camera className="w-10 h-10 text-neutral-600" />
           </div>
           <h3 className="text-lg font-semibold text-white mb-2">
-            {isOwnProfile ? 'Share your first post' : 'No posts yet'}
+            {isOwnProfile ? 'انشر أول منشور لك' : 'لا توجد منشورات بعد'}
           </h3>
           <p className="text-neutral-400 text-sm">
-            {isOwnProfile ? 'Upload an image from the feed page to get started.' : `When ${profile.username} shares photos, they'll appear here.`}
+            {isOwnProfile ? 'قم برفع صورة من صفحة الرئيسية للبدء.' : `عندما يشارك ${profile.username} الصور، ستظهر هنا.`}
           </p>
         </div>
       ) : (
         <div className="border-t border-white/10 pt-6">
-          <h2 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-4">Posts</h2>
+          <h2 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-4">المنشورات</h2>
           <div className="space-y-6">
             {posts.map((post) => (
               <PostCard key={post.id} post={post} />
@@ -258,7 +273,7 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Edit Profile Modal */}
+      {/* نافذة تعديل البروفايل */}
       {isEditModalOpen && (
         <EditProfileModal
           profile={profile}
@@ -271,4 +286,4 @@ export default function ProfilePage() {
       )}
     </div>
   );
-}
+          }
