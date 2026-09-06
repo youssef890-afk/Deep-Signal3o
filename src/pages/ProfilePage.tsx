@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import Avatar from '@/components/Avatar';
 import PostCard from '@/components/PostCard';
-import { EditProfileModal } from '@/components/EditProfileModal';
+import EditProfileModal from '@/components/EditProfileModal'; // <-- تصحيح: بدون أقواس {}
 import { Loader2, Camera, Edit3, MessageCircle, UserPlus, UserCheck } from 'lucide-react';
 import type { Profile, PostWithDetails } from '@/types';
 
@@ -257,7 +257,7 @@ export default function ProfilePage() {
         <EditProfileModal
           profile={profile}
           onClose={() => setIsEditModalOpen(false)}
-          onUpdate={() => {
+          onUpdated={() => { // <-- تصحيح: اسمها onUpdated
             loadProfile();
             refreshProfile();
           }}
