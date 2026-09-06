@@ -1,115 +1,91 @@
-import React, { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { X, Loader2 } from 'lucide-react';
 
-interface Props {
-  profile: any;
-  onClose: () => void;
-  onUpdate: () => void;
-}
-
-export const EditProfileModal: React.FC<Props> = ({ profile, onClose, onUpdate }) => {
+export default function EditProfileModal({ profile, onClose, onUpdated }: any) {
   const [username, setUsername] = useState(profile?.username || '');
   const [bio, setBio] = useState(profile?.bio || '');
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || '');
-  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    try {
-      setUploading(true);
-      if (!e.target.files || e.target.files.length === 0) return;
-      
-      const file = e.target.files[0];
-      const fileExt = file.name.split('.').pop();
-      const filePath = `avatars/${profile?.id || 'user'}-${Math.random()}.${fileExt}`;
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
 
-      const { error: uploadError } = await supabase.storage
-        .from('POSTS')
-        .upload(filePath, file);
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        username,
+        bio,
+        avatar_url: avatarUrl || null,
+      })
+      .eq('id', profile.id);
 
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from('POSTS').getPublicUrl(filePath);
-      setAvatarUrl(data.publicUrl);
-    } catch (error: any) {
-      alert('خطأ فـ رفع الصورة: ' + error.message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          username,
-          bio,
-          avatar_url: avatarUrl,
-        })
-        .eq('id', profile.id);
-
-      if (error) throw error;
-
-      onUpdate();
+    if (!error) {
+      onUpdated(); // إعادة تحميل البيانات فوراً في الصفحة الرئيسية
       onClose();
-    } catch (error: any) {
-      alert('خطأ فـ حفظ البيانات: ' + error.message);
     }
-  };
+    setSaving(false);
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl text-right dir-rtl">
-        <h2 className="text-xl font-bold mb-4 text-gray-800">تعديل الملف الشخصي</h2>
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
+      <div className="bg-neutral-900 border border-white/10 w-full max-w-sm rounded-3xl p-5 relative shadow-2xl text-white">
+        <button onClick={onClose} className="absolute top-4 left-4 text-neutral-400 hover:text-white">
+          <X className="w-5 h-5" />
+        </button>
 
-        <div className="flex flex-col items-center mb-4">
-          <img 
-            src={avatarUrl || 'https://via.placeholder.com/150'} 
-            alt="Avatar" 
-            className="w-24 h-24 rounded-full object-cover border-2 border-pink-500 mb-2"
-          />
-          <label className="text-sm text-pink-600 font-semibold cursor-pointer">
-            {uploading ? 'جاري الرفع...' : 'تغيير صورة البروفايل'}
-            <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" />
-          </label>
-        </div>
+        <h3 className="text-sm font-bold mb-4 text-center">تعديل الملف الشخصي</h3>
 
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">اسم المستخدم</label>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-full border rounded-lg p-2 text-right"
-          />
-        </div>
+        <form onSubmit={handleSave} className="space-y-4">
+          <div>
+            <label className="text-[11px] text-neutral-400 block mb-1">رابط الصورة الشخصية</label>
+            <input
+              type="url"
+              value={avatarUrl}
+              onChange={(e) => setAvatarUrl(e.target.value)}
+              placeholder="https://example.com/photo.jpg"
+              className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500"
+            />
+          </div>
 
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-1">البايو (Bio)</label>
-          <textarea
-            rows={3}
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
-            placeholder="اكتب نبذة قصيرة عليك..."
-            className="w-full border rounded-lg p-2 text-right"
-          />
-        </div>
+          <div>
+            <label className="text-[11px] text-neutral-400 block mb-1">اسم المستخدم</label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+            />
+          </div>
 
-        <div className="flex gap-2">
-          <button 
-            onClick={handleSave} 
-            className="flex-1 bg-pink-600 text-white py-2 rounded-lg font-semibold hover:bg-pink-700"
-          >
-            حفظ التغييرات
-          </button>
-          <button 
-            onClick={onClose} 
-            className="px-4 bg-gray-200 text-gray-700 py-2 rounded-lg font-semibold"
-          >
-            إلغاء
-          </button>
-        </div>
+          <div>
+            <label className="text-[11px] text-neutral-400 block mb-1">(Bio) البايو</label>
+            <textarea
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-rose-500 h-20 resize-none"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-xs text-neutral-300"
+            >
+              إلغاء
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 py-2 bg-rose-500 hover:bg-rose-600 rounded-xl text-xs font-semibold text-white flex justify-center items-center gap-1"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'حفظ التغييرات'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
-};
+}
