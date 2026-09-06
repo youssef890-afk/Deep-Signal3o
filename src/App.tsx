@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from '@/context/AuthContext';
 import Sidebar from '@/components/Sidebar';
 import LoginPage from '@/pages/LoginPage';
 import SignupPage from '@/pages/SignupPage';
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import FeedPage from '@/pages/FeedPage';
 import ChatPage from '@/pages/ChatPage';
 import ProfilePage from '@/pages/ProfilePage';
@@ -14,14 +15,25 @@ import { Loader2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 // =============================================
-// 1. تخطيط الصفحات المحمية (بـ Sidebar + MobileNav)
+// 1. تخطيط الصفحات المحمية (بشاشة واسعة للهواتف)
 // =============================================
 function ProtectedLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-black">
-      <Sidebar />
-      <main className="ml-16 xl:ml-64 min-h-screen pb-20 md:pb-0">{children}</main>
-      <MobileNav />
+    <div className="min-h-screen bg-black text-white">
+      {/* الشريط الجانبي يظهر فقط في الشاشات الكبيرة */}
+      <div className="hidden md:block">
+        <Sidebar />
+      </div>
+
+      {/* الشاشة واسعة على الهاتف ومزاحة على الحواسيب */}
+      <main className="md:ml-64 min-h-screen pb-20 md:pb-0">
+        {children}
+      </main>
+
+      {/* شريط التنقل السفلي للهواتف فقط */}
+      <div className="md:hidden">
+        <MobileNav />
+      </div>
     </div>
   );
 }
@@ -54,7 +66,7 @@ function MobileNav() {
             key={item.path}
             onClick={() => navigate(item.path)}
             className={`flex flex-col items-center gap-0.5 px-4 py-1.5 transition-all ${
-              isActive ? 'text-white' : 'text-neutral-500'
+              isActive ? 'text-rose-500' : 'text-neutral-500'
             }`}
           >
             <Icon className="w-6 h-6" strokeWidth={isActive ? 2.5 : 2} />
@@ -72,7 +84,6 @@ function MobileNav() {
 function AuthGate() {
   const { session, loading } = useAuth();
 
-  // شاشة التحميل
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center">
@@ -84,18 +95,17 @@ function AuthGate() {
     );
   }
 
-  // إذا لم يكن مسجلاً → صفحات الدخول
   if (!session) {
     return (
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
   }
 
-  // إذا كان مسجلاً → التطبيق كامل
   return (
     <Routes>
       <Route path="/feed" element={<ProtectedLayout><FeedPage /></ProtectedLayout>} />
