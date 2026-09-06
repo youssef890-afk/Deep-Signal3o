@@ -22,7 +22,7 @@ export default function ForgotPasswordPage() {
     if (error) {
       setError(error.message);
     } else {
-      setMessage('تم إرسال رابط إعادة ضبط كلمة السر إلى بريدك الإلكتروني.');
+      setMessage('تم إرسال رابط إعادة تعين كلمة السر إلى بريدك الإلكتروني.');
     }
     setLoading(false);
   }
