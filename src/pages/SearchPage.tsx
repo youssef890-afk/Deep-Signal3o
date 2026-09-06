@@ -1,3 +1,4 @@
+
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
@@ -25,7 +26,7 @@ export default function SearchPage() {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .ilike('username', `%${q.trim()}%`)
+      .or(`username.ilike.%${q.trim()}%,full_name.ilike.%${q.trim()}%`)
       .limit(20);
 
     if (error) {
@@ -51,7 +52,7 @@ export default function SearchPage() {
             setQuery(e.target.value);
             handleSearch(e.target.value);
           }}
-          placeholder="Search for users by username..."
+          placeholder="Search for users by username or name..."
           autoFocus
           className="w-full bg-neutral-900 border border-white/10 rounded-xl pl-12 pr-4 py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 focus:ring-2 focus:ring-rose-500/20 transition-all"
         />
