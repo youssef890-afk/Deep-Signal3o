@@ -1,90 +1,146 @@
 import { useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext'; // <--- أضف هذا السطر (عدل المسار)
 import EditProfileModal from '@/components/EditProfileModal';
-import { X, Loader2 } from 'lucide-react';
+import { ImagePlus, X, Loader2, Sparkles } from 'lucide-react';
 
-export default function EditProfileModal({ profile, onClose, onUpdated }: any) {
-  const [username, setUsername] = useState(profile?.username || '');
-  const [bio, setBio] = useState(profile?.bio || '');
-  const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || '');
-  const [saving, setSaving] = useState(false);
+interface CreatePostProps {
+  onPosted: () => void;
+}
 
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
+export default function CreatePostModal({ onPosted }: CreatePostProps) {
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [caption, setCaption] = useState('');
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        username,
-        bio,
-        avatar_url: avatarUrl || null,
-      })
-      .eq('id', profile.id);
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
 
-    if (!error) {
-      onUpdated(); // إعادة تحميل البيانات فوراً في الصفحة الرئيسية
-      onClose();
+    const reader = new FileReader();
+    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+
+    setUploading(true);
+    const ext = file.name.split('.').pop();
+    const filePath = `${user.id}/${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('posts')
+      .upload(filePath, file);
+
+    if (uploadError) {
+      alert('Failed to upload image: ' + uploadError.message);
+      setUploading(false);
+      return;
     }
-    setSaving(false);
+
+    const { data: urlData } = supabase.storage.from('posts').getPublicUrl(filePath);
+    setImagePreview(urlData.publicUrl);
+    setUploading(false);
+  };
+
+  const handleSubmit = async () => {
+    if (!imagePreview || !user) return;
+
+    const { error } = await supabase.from('posts').insert({
+      image_url: imagePreview,
+      caption: caption.trim() || null,
+      user_id: user.id, // <--- أضف هذا السطر (مطلوب لقاعدة البيانات)
+    });
+
+    if (error) {
+      alert('Failed to create post: ' + error.message);
+      return;
+    }
+
+    setCaption('');
+    setImagePreview(null);
+    setOpen(false);
+    onPosted();
+  };
+
+  const handleClose = () => {
+    setCaption('');
+    setImagePreview(null);
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full flex items-center gap-3 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-neutral-300 hover:text-white group"
+      >
+        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-rose-500/20 to-amber-500/20 flex items-center justify-center group-hover:from-rose-500/30 group-hover:to-amber-500/30 transition-all">
+          <ImagePlus className="w-5 h-5" />
+        </div>
+        <span className="text-sm font-medium">Share something with the world...</span>
+        <Sparkles className="w-4 h-4 ml-auto text-neutral-600" />
+      </button>
+    );
   }
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50">
-      <div className="bg-neutral-900 border border-white/10 w-full max-w-sm rounded-3xl p-5 relative shadow-2xl text-white">
-        <button onClick={onClose} className="absolute top-4 left-4 text-neutral-400 hover:text-white">
-          <X className="w-5 h-5" />
-        </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={handleClose} />
 
-        <h3 className="text-sm font-bold mb-4 text-center">تعديل الملف الشخصي</h3>
+      <div className="relative w-full max-w-lg bg-neutral-900 border border-white/10 rounded-2xl overflow-hidden animate-scale-in shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+          <h2 className="text-lg font-semibold">Create Post</h2>
+          <button onClick={handleClose} className="text-neutral-400 hover:text-white transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
 
-        <form onSubmit={handleSave} className="space-y-4">
-          <div>
-            <label className="text-[11px] text-neutral-400 block mb-1">رابط الصورة الشخصية</label>
-            <input
-              type="url"
-              value={avatarUrl}
-              onChange={(e) => setAvatarUrl(e.target.value)}
-              placeholder="https://example.com/photo.jpg"
-              className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500"
-            />
-          </div>
+        {/* Body */}
+        <div className="p-5 space-y-4">
+          {imagePreview ? (
+            <div className="relative rounded-xl overflow-hidden">
+              <img src={imagePreview} alt="Preview" className="w-full max-h-80 object-cover" />
+              <button
+                onClick={() => setImagePreview(null)}
+                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur flex items-center justify-center text-white hover:bg-black/80 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <label className="flex flex-col items-center justify-center gap-3 py-12 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:border-rose-500/30 hover:bg-white/5 transition-all">
+              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-500/20 to-amber-500/20 flex items-center justify-center">
+                <ImagePlus className="w-7 h-7 text-rose-400" />
+              </div>
+              <span className="text-sm text-neutral-400">Click to upload an image</span>
+              <input type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
+            </label>
+          )}
 
-          <div>
-            <label className="text-[11px] text-neutral-400 block mb-1">اسم المستخدم</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
-            />
-          </div>
+          <textarea
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            placeholder="Write a caption..."
+            rows={3}
+            maxLength={500}
+            className="w-full bg-neutral-800/80 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 focus:ring-2 focus:ring-rose-500/20 transition-all resize-none"
+          />
 
-          <div>
-            <label className="text-[11px] text-neutral-400 block mb-1">(Bio) البايو</label>
-            <textarea
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-              className="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-rose-500 h-20 resize-none"
-            />
-          </div>
-
-          <div className="flex gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-xs text-neutral-300"
-            >
-              إلغاء
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 py-2 bg-rose-500 hover:bg-rose-600 rounded-xl text-xs font-semibold text-white flex justify-center items-center gap-1"
-            >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'حفظ التغييرات'}
-            </button>
-          </div>
-        </form>
+          <button
+            onClick={handleSubmit}
+            disabled={!imagePreview || uploading}
+            className="w-full bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 text-white font-semibold py-3 rounded-xl hover:opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {uploading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" /> Uploading...
+              </>
+            ) : (
+              'Share Post'
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
