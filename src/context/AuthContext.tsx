@@ -76,22 +76,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [loadProfile]);
 
+  // =============================================
+  // دالة تسجيل الدخول (تم إصلاحها)
+  // =============================================
   const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
-  }, []);
-
-  const signUp = useCallback(async (email: string, password: string, username: string) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { username } },
-    });
-    if (error) return { error: error.message };
-    if (data.user) {
-      await loadProfile(data.user.id);
+    try {
+      console.log('🔍 محاولة تسجيل الدخول:', email);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) {
+        console.error('❌ خطأ فـ التسجيل:', error.message);
+        return { error: error.message };
+      }
+      // تحميل البروفايل بعد تسجيل الدخول
+      if (data.user) {
+        await loadProfile(data.user.id);
+      }
+      console.log('✅ تم تسجيل الدخول بنجاح');
+      return { error: null };
+    } catch (err) {
+      console.error('🔥 خطأ غير متوقع:', err);
+      return { error: 'حدث خطأ غير متوقع' };
     }
-    return { error: null };
+  }, [loadProfile]);
+
+  // =============================================
+  // دالة التسجيل (تم إصلاحها)
+  // =============================================
+  const signUp = useCallback(async (email: string, password: string, username: string) => {
+    try {
+      console.log('🔍 محاولة التسجيل:', email, username);
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { username },
+        },
+      });
+      if (error) {
+        console.error('❌ خطأ فـ التسجيل:', error.message);
+        return { error: error.message };
+      }
+      if (data.user) {
+        console.log('✅ تم التسجيل بنجاح:', data.user.email);
+        await loadProfile(data.user.id);
+      }
+      return { error: null };
+    } catch (err) {
+      console.error('🔥 خطأ غير متوقع:', err);
+      return { error: 'حدث خطأ غير متوقع' };
+    }
   }, [loadProfile]);
 
   const signOut = useCallback(async () => {
