@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/context/AuthContext'; // <--- أضف هذا السطر (عدل المسار)
-import EditProfileModal from '@/components/EditProfileModal';
+import { useAuth } from '@/context/AuthContext';
 import { ImagePlus, X, Loader2, Sparkles } from 'lucide-react';
 
 interface CreatePostProps {
@@ -48,7 +47,7 @@ export default function CreatePostModal({ onPosted }: CreatePostProps) {
     const { error } = await supabase.from('posts').insert({
       image_url: imagePreview,
       caption: caption.trim() || null,
-      user_id: user.id, // <--- أضف هذا السطر (مطلوب لقاعدة البيانات)
+      user_id: user.id,
     });
 
     if (error) {
@@ -88,7 +87,6 @@ export default function CreatePostModal({ onPosted }: CreatePostProps) {
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={handleClose} />
 
       <div className="relative w-full max-w-lg bg-neutral-900 border border-white/10 rounded-2xl overflow-hidden animate-scale-in shadow-2xl">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <h2 className="text-lg font-semibold">Create Post</h2>
           <button onClick={handleClose} className="text-neutral-400 hover:text-white transition-colors">
@@ -96,7 +94,6 @@ export default function CreatePostModal({ onPosted }: CreatePostProps) {
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-5 space-y-4">
           {imagePreview ? (
             <div className="relative rounded-xl overflow-hidden">
