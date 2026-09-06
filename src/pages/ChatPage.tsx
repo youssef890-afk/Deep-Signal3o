@@ -25,7 +25,6 @@ export default function ChatPage() {
     let cancelled = false;
 
     const loadConversations = async () => {
-      // Get all messages involving this user
       const { data: msgs } = await supabase
         .from('messages')
         .select('*')
@@ -34,7 +33,6 @@ export default function ChatPage() {
 
       if (cancelled || !msgs) return;
 
-      // Build a map of other user ID -> last message + unread count
       const convMap = new Map<string, { lastMessage: Message; unreadCount: number }>();
       for (const msg of msgs as Message[]) {
         const otherId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
@@ -51,7 +49,6 @@ export default function ChatPage() {
         }
       }
 
-      // Load profiles for all conversation partners
       const userIds = Array.from(convMap.keys());
       if (userIds.length === 0) {
         setConversations([]);
@@ -80,7 +77,7 @@ export default function ChatPage() {
     return () => { cancelled = true; };
   }, [user]);
 
-  // Load active user profile when param changes
+  // Load active user profile
   useEffect(() => {
     if (!activeUserId) {
       setActiveUser(null);
@@ -105,7 +102,6 @@ export default function ChatPage() {
 
     setMessages((data as Message[]) ?? []);
 
-    // Mark received messages as read
     if (data) {
       const unread = (data as Message[]).filter(
         (m) => m.receiver_id === user.id && !m.read_at
@@ -140,7 +136,6 @@ export default function ChatPage() {
             if (prev.some((m) => m.id === newMsg.id)) return prev;
             return [...prev, newMsg];
           });
-          // Mark as read if we're the receiver
           if (newMsg.receiver_id === user.id) {
             supabase.from('messages').update({ read_at: new Date().toISOString() }).eq('id', newMsg.id);
           }
@@ -252,7 +247,7 @@ export default function ChatPage() {
               />
               <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/profile/${activeUser.id}`)}>
                 <p className="text-sm font-semibold text-white truncate">{activeUser.username}</p>
-                <p className="text-xs text-neutral-500 truncate">{activeUser.full_name || 'View profile'}</p>
+                <p className="text-xs text-neutral-500 truncate">#{activeUser.display_id}</p>
               </div>
             </div>
 
@@ -338,4 +333,4 @@ export default function ChatPage() {
       </div>
     </div>
   );
-}
+                }
