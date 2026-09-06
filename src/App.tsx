@@ -7,7 +7,9 @@ import FeedPage from '@/pages/FeedPage';
 import ChatPage from '@/pages/ChatPage';
 import ProfilePage from '@/pages/ProfilePage';
 import SearchPage from '@/pages/SearchPage';
-import { Home, MessageCircle, User, Search as SearchIcon, Signal } from 'lucide-react';
+import RoomsPage from '@/pages/RoomsPage';
+import RoomDetailPage from '@/pages/RoomDetailPage';
+import { Home, MessageCircle, User, Search as SearchIcon, Signal, Mic } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -30,6 +32,7 @@ function MobileNav() {
     { path: '/feed', icon: Home, label: 'Feed' },
     { path: '/search', icon: SearchIcon, label: 'Search' },
     { path: '/chat', icon: MessageCircle, label: 'Messages' },
+    { path: '/rooms', icon: Mic, label: 'Rooms' },
     ...(profile ? [{ path: `/profile/${profile.id}`, icon: User, label: 'Profile' }] : []),
   ];
 
@@ -37,7 +40,8 @@ function MobileNav() {
     <nav className="fixed bottom-0 left-0 right-0 h-16 bg-black/90 backdrop-blur-xl border-t border-white/10 flex items-center justify-around z-40 md:hidden">
       {items.map((item) => {
         const isActive = location.pathname === item.path ||
-          (item.path === '/chat' && location.pathname.startsWith('/chat'));
+          (item.path === '/chat' && location.pathname.startsWith('/chat')) ||
+          (item.path === '/rooms' && location.pathname.startsWith('/rooms'));
         const Icon = item.icon;
         return (
           <button
@@ -87,6 +91,8 @@ function AuthGate() {
       <Route path="/chat" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
       <Route path="/chat/:userId" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
       <Route path="/profile/:userId" element={<ProtectedLayout><ProfilePage /></ProtectedLayout>} />
+      <Route path="/rooms" element={<ProtectedLayout><RoomsPage /></ProtectedLayout>} />
+      <Route path="/room/:roomId" element={<ProtectedLayout><RoomDetailPage /></ProtectedLayout>} />
       <Route path="*" element={<Navigate to="/feed" replace />} />
     </Routes>
   );
