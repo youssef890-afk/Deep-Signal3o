@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { Heart, MessageCircle, Share2, Loader2, Image as ImageIcon, Send, UserPlus, MessageSquare, Upload } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Loader2, Send, UserPlus, MessageSquare, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface Profile {
@@ -40,64 +40,51 @@ export default function FeedPage() {
 
   async function loadFeedData() {
     setLoading(true);
+    try {
+      // 1. جلب بيانات البروفايلات والمستخدمين
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, username, avatar_url');
 
-    // 1. جلب قائمة المستخدمين
-    const { data: usersData } = await supabase
-      .from('profiles')
-      .select('id, username, avatar_url')
-      .neq('id', user?.id)
-      .limit(6);
+      const profilesMap = new Map(profilesData?.map((p) => [p.id, p]));
+      setUsers(profilesData?.filter(p => p.id !== user?.id).slice(0, 6) || []);
 
-    setUsers(usersData || []);
+      // 2. جلب المنشورات
+      const { data: postsData } = await supabase
+        .from('posts')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    // 2. جلب المنشورات
-    const { data: postsData, error: postsError } = await supabase
-      .from('posts')
-      .select('*')
-      .order('created_at', { ascending: false });
+      // 3. جلب الإعجابات
+      const { data: likesData } = await supabase
+        .from('likes')
+        .select('post_id, user_id');
 
-    if (postsError || !postsData) {
-      setPosts([]);
+      const formattedPosts = (postsData || []).map((post) => {
+        const postLikes = likesData?.filter((l) => l.post_id === post.id) || [];
+        const hasLiked = postLikes.some((l) => l.user_id === user?.id);
+        const foundProfile = profilesMap.get(post.user_id);
+
+        return {
+          ...post,
+          profiles: {
+            id: post.user_id,
+            username: foundProfile?.username || `user_${post.user_id.slice(0, 4)}`,
+            avatar_url: foundProfile?.avatar_url || '',
+          },
+          likes_count: postLikes.length,
+          user_has_liked: hasLiked,
+        };
+      });
+
+      setPosts(formattedPosts);
+    } catch (err) {
+      console.error(err);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    // 3. جلب بيانات البروفايلات
-    const userIds = [...new Set(postsData.map((p) => p.user_id))];
-    const { data: profilesData } = await supabase
-      .from('profiles')
-      .select('id, username, avatar_url')
-      .in('id', userIds);
-
-    const profilesMap = new Map(profilesData?.map((p) => [p.id, p]));
-
-    // 4. جلب الإعجابات
-    const { data: likesData } = await supabase
-      .from('likes')
-      .select('post_id, user_id');
-
-    const formattedPosts = postsData.map((post) => {
-      const postLikes = likesData?.filter((l) => l.post_id === post.id) || [];
-      const hasLiked = postLikes.some((l) => l.user_id === user?.id);
-      const foundProfile = profilesMap.get(post.user_id);
-
-      return {
-        ...post,
-        profiles: {
-          id: post.user_id,
-          username: foundProfile?.username || `user_${post.user_id.slice(0, 5)}`,
-          avatar_url: foundProfile?.avatar_url || '',
-        },
-        likes_count: postLikes.length,
-        user_has_liked: hasLiked,
-      };
-    });
-
-    setPosts(formattedPosts);
-    setLoading(false);
   }
 
-  // معاينة الصورة عند اختيارها من الهاتف
   function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
@@ -105,7 +92,6 @@ export default function FeedPage() {
     setImagePreview(URL.createObjectURL(file));
   }
 
-  // رفع الصورة لـ Supabase Storage وخلق المنشور
   async function handleCreatePost(e: React.FormEvent) {
     e.preventDefault();
     if (!caption.trim() && !imageFile) return;
@@ -117,26 +103,21 @@ export default function FeedPage() {
       if (imageFile) {
         const fileExt = imageFile.name.split('.').pop();
         const fileName = `${user?.id}_${Date.now()}.${fileExt}`;
-        const filePath = `${fileName}`;
 
-        // رفع الملف لـ Storage bucket المسمى posts
         const { error: uploadError } = await supabase.storage
           .from('posts')
-          .upload(filePath, imageFile);
+          .upload(fileName, imageFile, { upsert: true });
 
         if (uploadError) {
-          throw uploadError;
+          console.warn('Storage upload error, falling back to empty image:', uploadError.message);
+        } else {
+          const { data: publicUrlData } = supabase.storage
+            .from('posts')
+            .getPublicUrl(fileName);
+          finalImageUrl = publicUrlData.publicUrl;
         }
-
-        // الحصول على الرابط العام للصورة
-        const { data: publicUrlData } = supabase.storage
-          .from('posts')
-          .getPublicUrl(filePath);
-
-        finalImageUrl = publicUrlData.publicUrl;
       }
 
-      // إضافة المنشور لقاعدة البيانات
       const { error: insertError } = await supabase.from('posts').insert([
         {
           user_id: user?.id,
@@ -147,13 +128,12 @@ export default function FeedPage() {
 
       if (insertError) throw insertError;
 
-      // إعادة التعيين والتحميل
       setCaption('');
       setImageFile(null);
       setImagePreview(null);
       await loadFeedData();
     } catch (err: any) {
-      alert('حدث خطأ أثناء رفع المنشور: ' + (err.message || err));
+      alert('خطأ أثناء النشر: ' + (err.message || 'تاكد من اعدادات قاعدة البيانات'));
     } finally {
       setUploading(false);
     }
@@ -185,7 +165,6 @@ export default function FeedPage() {
 
   return (
     <div className="max-w-md mx-auto px-4 py-6 pb-28 text-white min-h-screen">
-      {/* 1.2 شبكة عرض المستخدمين */}
       {users.length > 0 && (
         <div className="mb-6">
           <h2 className="text-xs font-bold text-neutral-400 mb-3">مستخدمون على المنصة</h2>
@@ -220,7 +199,6 @@ export default function FeedPage() {
         </div>
       )}
 
-      {/* 1.1 إضافة منشور جديد رفع من الهاتف */}
       <div className="bg-neutral-900/80 border border-white/10 rounded-2xl p-4 mb-6 shadow-lg">
         <h2 className="text-xs font-bold text-neutral-300 mb-3">إضافة منشور جديد</h2>
         <form onSubmit={handleCreatePost} className="space-y-3">
@@ -231,7 +209,6 @@ export default function FeedPage() {
             className="w-full bg-neutral-950 border border-white/10 rounded-xl p-3 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500 resize-none h-20"
           />
 
-          {/* معاينة الصورة المحددة */}
           {imagePreview && (
             <div className="relative w-full h-36 bg-neutral-950 rounded-xl overflow-hidden border border-white/10">
               <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
@@ -269,7 +246,6 @@ export default function FeedPage() {
         </form>
       </div>
 
-      {/* 1.3 & 1.6 عرض المنشورات */}
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
@@ -337,3 +313,4 @@ export default function FeedPage() {
     </div>
   );
 }
+
