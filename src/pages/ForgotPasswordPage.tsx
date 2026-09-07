@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { Heart, MessageCircle, Share2, Loader2, Image as ImageIcon, Send, UserPlus, MessageSquare } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Loader2, Image as ImageIcon, Send, UserPlus, MessageSquare, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface Profile {
@@ -28,8 +28,9 @@ export default function FeedPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [caption, setCaption] = useState('');
-  const [imageUrl, setImageUrl] = useState('');
-  const [posting, setPosting] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (user?.id) {
@@ -40,7 +41,7 @@ export default function FeedPage() {
   async function loadFeedData() {
     setLoading(true);
 
-    // 1. جلب قائمة المستخدمين الآخرين لعرضهم في الأعلى (حد أقصى 6 مستخدمين)
+    // 1. جلب قائمة المستخدمين
     const { data: usersData } = await supabase
       .from('profiles')
       .select('id, username, avatar_url')
@@ -50,18 +51,18 @@ export default function FeedPage() {
     setUsers(usersData || []);
 
     // 2. جلب المنشورات
-    const { data: postsData } = await supabase
+    const { data: postsData, error: postsError } = await supabase
       .from('posts')
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (!postsData || postsData.length === 0) {
+    if (postsError || !postsData) {
       setPosts([]);
       setLoading(false);
       return;
     }
 
-    // 3. جلب بيانات البروفايلات للمنشورات
+    // 3. جلب بيانات البروفايلات
     const userIds = [...new Set(postsData.map((p) => p.user_id))];
     const { data: profilesData } = await supabase
       .from('profiles')
@@ -70,7 +71,7 @@ export default function FeedPage() {
 
     const profilesMap = new Map(profilesData?.map((p) => [p.id, p]));
 
-    // 4. جلب تفاعلات الإعجاب (Likes)
+    // 4. جلب الإعجابات
     const { data: likesData } = await supabase
       .from('likes')
       .select('post_id, user_id');
@@ -78,13 +79,14 @@ export default function FeedPage() {
     const formattedPosts = postsData.map((post) => {
       const postLikes = likesData?.filter((l) => l.post_id === post.id) || [];
       const hasLiked = postLikes.some((l) => l.user_id === user?.id);
+      const foundProfile = profilesMap.get(post.user_id);
 
       return {
         ...post,
-        profiles: profilesMap.get(post.user_id) || {
+        profiles: {
           id: post.user_id,
-          username: 'مستخدم',
-          avatar_url: '',
+          username: foundProfile?.username || `user_${post.user_id.slice(0, 5)}`,
+          avatar_url: foundProfile?.avatar_url || '',
         },
         likes_count: postLikes.length,
         user_has_liked: hasLiked,
@@ -95,34 +97,71 @@ export default function FeedPage() {
     setLoading(false);
   }
 
+  // معاينة الصورة عند اختيارها من الهاتف
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  }
+
+  // رفع الصورة لـ Supabase Storage وخلق المنشور
   async function handleCreatePost(e: React.FormEvent) {
     e.preventDefault();
-    if (!caption.trim() && !imageUrl.trim()) return;
+    if (!caption.trim() && !imageFile) return;
 
-    setPosting(true);
+    setUploading(true);
+    let finalImageUrl = '';
 
-    const { error } = await supabase.from('posts').insert([
-      {
-        user_id: user?.id,
-        caption: caption.trim(),
-        image_url: imageUrl.trim() || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe',
-      },
-    ]);
+    try {
+      if (imageFile) {
+        const fileExt = imageFile.name.split('.').pop();
+        const fileName = `${user?.id}_${Date.now()}.${fileExt}`;
+        const filePath = `${fileName}`;
 
-    if (error) {
-      alert('حدث خطأ أثناء نشر المنشور: ' + error.message);
-    } else {
+        // رفع الملف لـ Storage bucket المسمى posts
+        const { error: uploadError } = await supabase.storage
+          .from('posts')
+          .upload(filePath, imageFile);
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        // الحصول على الرابط العام للصورة
+        const { data: publicUrlData } = supabase.storage
+          .from('posts')
+          .getPublicUrl(filePath);
+
+        finalImageUrl = publicUrlData.publicUrl;
+      }
+
+      // إضافة المنشور لقاعدة البيانات
+      const { error: insertError } = await supabase.from('posts').insert([
+        {
+          user_id: user?.id,
+          caption: caption.trim(),
+          image_url: finalImageUrl,
+        },
+      ]);
+
+      if (insertError) throw insertError;
+
+      // إعادة التعيين والتحميل
       setCaption('');
-      setImageUrl('');
-      loadFeedData();
+      setImageFile(null);
+      setImagePreview(null);
+      await loadFeedData();
+    } catch (err: any) {
+      alert('حدث خطأ أثناء رفع المنشور: ' + (err.message || err));
+    } finally {
+      setUploading(false);
     }
-    setPosting(false);
   }
 
   async function handleToggleLike(post: Post) {
     if (!user) return;
 
-    // تحديث الواجهة فورياً (Optimistic Update)
     setPosts((prev) =>
       prev.map((p) => {
         if (p.id === post.id) {
@@ -138,20 +177,18 @@ export default function FeedPage() {
     );
 
     if (post.user_has_liked) {
-      // إزالة الإعجاب
       await supabase.from('likes').delete().eq('post_id', post.id).eq('user_id', user.id);
     } else {
-      // إضافة إعجاب
       await supabase.from('likes').insert([{ post_id: post.id, user_id: user.id }]);
     }
   }
 
   return (
     <div className="max-w-md mx-auto px-4 py-6 pb-28 text-white min-h-screen">
-      {/* 1.2 عرض المستخدمين الجدد في الأعلى (Users Grid) */}
+      {/* 1.2 شبكة عرض المستخدمين */}
       {users.length > 0 && (
         <div className="mb-6">
-          <h2 className="text-xs font-bold text-neutral-400 mb-3">صناع المحتوى / المستخدمين</h2>
+          <h2 className="text-xs font-bold text-neutral-400 mb-3">مستخدمون على المنصة</h2>
           <div className="grid grid-cols-3 gap-2">
             {users.map((u) => (
               <div key={u.id} className="bg-neutral-900 border border-white/10 rounded-2xl p-2.5 flex flex-col items-center text-center">
@@ -183,7 +220,7 @@ export default function FeedPage() {
         </div>
       )}
 
-      {/* 1.1 منطقة إنشاء منشور جديد */}
+      {/* 1.1 إضافة منشور جديد رفع من الهاتف */}
       <div className="bg-neutral-900/80 border border-white/10 rounded-2xl p-4 mb-6 shadow-lg">
         <h2 className="text-xs font-bold text-neutral-300 mb-3">إضافة منشور جديد</h2>
         <form onSubmit={handleCreatePost} className="space-y-3">
@@ -193,23 +230,39 @@ export default function FeedPage() {
             placeholder="بماذا تفكر اليوم؟"
             className="w-full bg-neutral-950 border border-white/10 rounded-xl p-3 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500 resize-none h-20"
           />
-          <div className="flex items-center gap-2">
-            <div className="flex-1 flex items-center gap-2 bg-neutral-950 border border-white/10 rounded-xl px-3 py-2">
-              <ImageIcon className="w-4 h-4 text-neutral-400" />
-              <input
-                type="text"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="رابط الصورة (Image URL)"
-                className="w-full bg-transparent text-xs text-white placeholder-neutral-500 focus:outline-none"
-              />
+
+          {/* معاينة الصورة المحددة */}
+          {imagePreview && (
+            <div className="relative w-full h-36 bg-neutral-950 rounded-xl overflow-hidden border border-white/10">
+              <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+              <button
+                type="button"
+                onClick={() => { setImageFile(null); setImagePreview(null); }}
+                className="absolute top-2 right-2 bg-black/70 text-white rounded-full p-1 text-xs hover:bg-black"
+              >
+                ✕
+              </button>
             </div>
+          )}
+
+          <div className="flex items-center justify-between gap-2">
+            <label className="flex items-center gap-2 cursor-pointer bg-neutral-950 border border-white/10 hover:border-white/20 rounded-xl px-3 py-2 text-xs text-neutral-300 transition">
+              <Upload className="w-4 h-4 text-rose-500" />
+              <span>{imageFile ? 'تغيير الصورة' : 'اختر صورة من الهاتف'}</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageSelect}
+                className="hidden"
+              />
+            </label>
+
             <button
               type="submit"
-              disabled={posting || (!caption.trim() && !imageUrl.trim())}
-              className="flex items-center gap-1.5 px-4 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition"
+              disabled={uploading || (!caption.trim() && !imageFile)}
+              className="flex items-center gap-1.5 px-5 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition"
             >
-              {posting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               نشر
             </button>
           </div>
@@ -258,7 +311,6 @@ export default function FeedPage() {
                 </div>
               )}
 
-              {/* أزرار التفاعل المربوطة */}
               <div className="p-3 flex items-center justify-between border-t border-white/5 text-neutral-400">
                 <button
                   onClick={() => handleToggleLike(post)}
