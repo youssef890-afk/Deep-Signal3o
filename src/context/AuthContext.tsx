@@ -1,3 +1,4 @@
+// AuthContext.tsx - التعديل الموصى به
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
@@ -23,16 +24,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const loadProfile = useCallback(async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
-    if (error) {
-      console.error('Error loading profile:', error.message);
-      return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error loading profile:', error.message);
+        return;
+      }
+      setProfile(data as Profile | null);
+    } catch (err) {
+      console.error('Network error loading profile:', err);
     }
-    setProfile(data as Profile | null);
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -44,12 +50,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
+    // مهلة زمنية لضمان عدم إبقاء الشاشة معلقة في حالة التحميل
+    const timeout = setTimeout(() => {
+      if (mounted && loading) {
+        setLoading(false);
+      }
+    }, 4000);
+
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       setSession(data.session);
       setUser(data.session?.user ?? null);
       if (data.session?.user) {
-        loadProfile(data.session.user.id).then(() => {
+        loadProfile(data.session.user.id).finally(() => {
           if (mounted) setLoading(false);
         });
       } else {
@@ -58,74 +71,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      (async () => {
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-        if (newSession?.user) {
-          await loadProfile(newSession.user.id);
-        } else {
-          setProfile(null);
-        }
-        setLoading(false);
-      })();
+      if (!mounted) return;
+      setSession(newSession);
+      setUser(newSession?.user ?? null);
+      if (newSession?.user) {
+        loadProfile(newSession.user.id);
+      } else {
+        setProfile(null);
+      }
+      setLoading(false);
     });
+
+    // إعادة إنعاش الجلسة عند العودة إلى التطبيق من الخلفية
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        supabase.auth.getSession().then(({ data }) => {
+          if (mounted && data.session) {
+            setSession(data.session);
+            setUser(data.session.user);
+          }
+        });
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       mounted = false;
+      clearTimeout(timeout);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
       authListener.subscription.unsubscribe();
     };
   }, [loadProfile]);
 
-  // =============================================
-  // دالة تسجيل الدخول (تم إصلاحها)
-  // =============================================
   const signIn = useCallback(async (email: string, password: string) => {
     try {
-      console.log('🔍 محاولة تسجيل الدخول:', email);
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) {
-        console.error('❌ خطأ فـ التسجيل:', error.message);
-        return { error: error.message };
-      }
-      // تحميل البروفايل بعد تسجيل الدخول
-      if (data.user) {
-        await loadProfile(data.user.id);
-      }
-      console.log('✅ تم تسجيل الدخول بنجاح');
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return { error: error.message };
+      if (data.user) await loadProfile(data.user.id);
       return { error: null };
     } catch (err) {
-      console.error('🔥 خطأ غير متوقع:', err);
       return { error: 'حدث خطأ غير متوقع' };
     }
   }, [loadProfile]);
 
-  // =============================================
-  // دالة التسجيل (تم إصلاحها)
-  // =============================================
   const signUp = useCallback(async (email: string, password: string, username: string) => {
     try {
-      console.log('🔍 محاولة التسجيل:', email, username);
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          data: { username },
-        },
+        options: { data: { username } },
       });
-      if (error) {
-        console.error('❌ خطأ فـ التسجيل:', error.message);
-        return { error: error.message };
-      }
-      if (data.user) {
-        console.log('✅ تم التسجيل بنجاح:', data.user.email);
-        await loadProfile(data.user.id);
-      }
+      if (error) return { error: error.message };
+      if (data.user) await loadProfile(data.user.id);
       return { error: null };
     } catch (err) {
-      console.error('🔥 خطأ غير متوقع:', err);
       return { error: 'حدث خطأ غير متوقع' };
     }
   }, [loadProfile]);
@@ -151,3 +151,4 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
+
