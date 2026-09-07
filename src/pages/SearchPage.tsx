@@ -1,118 +1,125 @@
-import { useState, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import Avatar from '@/components/Avatar';
-import { Search, Loader2, MessageCircle } from 'lucide-react';
-import type { Profile } from '@/types';
+import { Search as SearchIcon, X, MessageSquare, Loader2 } from 'lucide-react';
+
+interface Profile {
+  id: string;
+  username: string;
+  full_name?: string;
+  avatar_url?: string;
+  display_id?: string;
+}
 
 export default function SearchPage() {
-  const navigate = useNavigate();
-  const [query, setQuery] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [results, setResults] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(false);
-  const [searched, setSearched] = useState(false);
+  const navigate = useNavigate();
 
-  const handleSearch = useCallback(async (q: string) => {
-    if (q.trim().length < 1) {
-      setResults([]);
-      setSearched(false);
-      return;
+  useEffect(() => {
+    async function fetchUsers() {
+      if (!searchTerm.trim()) {
+        // جلب قائمة مقترحة عند فتح البحث بدون كتابة
+        const { data } = await supabase
+          .from('profiles')
+          .select('id, username, full_name, avatar_url, display_id')
+          .limit(10);
+        setResults((data as Profile[]) || []);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, username, full_name, avatar_url, display_id')
+          .or(`username.ilike.%${searchTerm}%,full_name.ilike.%${searchTerm}%,display_id.ilike.%${searchTerm}%`)
+          .limit(20);
+
+        if (error) throw error;
+        setResults((data as Profile[]) || []);
+      } catch (err) {
+        console.error('Error searching users:', err);
+      } finally {
+        setLoading(false);
+      }
     }
 
-    setLoading(true);
-    setSearched(true);
-
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .or(`username.ilike.%${q.trim()}%,full_name.ilike.%${q.trim()}%`)
-      .limit(20);
-
-    if (error) {
-      console.error('Search error:', error.message);
-      setResults([]);
-    } else {
-      setResults((data as Profile[]) ?? []);
-    }
-    setLoading(false);
-  }, []);
+    const timer = setTimeout(fetchUsers, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6">
-      <h1 className="text-2xl font-bold text-white mb-6">Search</h1>
+    <div className="max-w-xl mx-auto px-4 py-6 pb-28 text-white space-y-5">
+      <h1 className="text-xl font-bold">Search</h1>
 
-      <div className="relative mb-8">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
+      {/* مربع البحث */}
+      <div className="relative flex items-center">
+        <SearchIcon className="absolute left-3 w-4 h-4 text-neutral-400" />
         <input
           type="text"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            handleSearch(e.target.value);
-          }}
-          placeholder="Search for users by username or name..."
-          autoFocus
-          className="w-full bg-neutral-900 border border-white/10 rounded-xl pl-12 pr-4 py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 focus:ring-2 focus:ring-rose-500/20 transition-all"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="ابحث عن اسم المستخدم أو ID..."
+          className="w-full bg-neutral-900 border border-white/10 rounded-xl pl-9 pr-10 py-2.5 text-xs text-white focus:outline-none focus:border-rose-500 transition-colors"
         />
-        {query && (
+        {searchTerm && (
           <button
-            onClick={() => {
-              setQuery('');
-              setResults([]);
-              setSearched(false);
-            }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white text-sm transition-colors"
+            onClick={() => setSearchTerm('')}
+            className="absolute right-3 text-neutral-400 hover:text-white text-xs font-semibold"
           >
             Clear
           </button>
         )}
       </div>
 
+      {/* قائمة النتائج */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
+        <div className="flex justify-center py-8">
           <Loader2 className="w-6 h-6 animate-spin text-rose-500" />
-        </div>
-      ) : searched && results.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Search className="w-10 h-10 text-neutral-700 mb-3" />
-          <p className="text-sm text-neutral-500">No users found for "{query}"</p>
-        </div>
-      ) : !searched ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Search className="w-10 h-10 text-neutral-700 mb-3" />
-          <p className="text-sm text-neutral-500">Start typing to find people on Deep Signal.</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {results.map((profile) => (
-            <div
-              key={profile.id}
-              className="flex items-center gap-3 p-3 bg-neutral-900/60 border border-white/10 rounded-xl hover:bg-white/5 hover:border-white/20 transition-all animate-fade-in"
-            >
-              <Avatar
-                src={profile.avatar_url}
-                name={profile.full_name || profile.username}
-                size="md"
-                onClick={() => navigate(`/profile/${profile.id}`)}
-              />
+          {results.length === 0 ? (
+            <p className="text-center text-xs text-neutral-500 py-6">لا توجد نتائج مطابقة</p>
+          ) : (
+            results.map((item) => (
               <div
-                className="flex-1 min-w-0 cursor-pointer"
-                onClick={() => navigate(`/profile/${profile.id}`)}
+                key={item.id}
+                onClick={() => navigate(`/profile/${item.id}`)}
+                className="bg-neutral-900 hover:bg-neutral-800 border border-white/10 rounded-xl p-3 flex items-center justify-between cursor-pointer transition-colors"
               >
-                <p className="text-sm font-semibold text-white truncate">{profile.username}</p>
-                <p className="text-xs text-neutral-500 truncate">#{profile.display_id}</p>
-                {profile.full_name && (
-                  <p className="text-xs text-neutral-500 truncate">{profile.full_name}</p>
-                )}
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center font-bold text-xs text-rose-400 overflow-hidden border border-rose-500/30">
+                    {item.avatar_url ? (
+                      <img src={item.avatar_url} alt={item.username} className="w-full h-full object-cover" />
+                    ) : (
+                      item.username?.charAt(0).toUpperCase() || 'U'
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-white">
+                      {item.full_name || item.username}
+                    </h3>
+                    <p className="text-[10px] text-neutral-400">
+                      {item.display_id ? `#${item.display_id}` : `@${item.username}`}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/chat`);
+                  }}
+                  className="bg-neutral-800 hover:bg-neutral-700 p-2 rounded-lg text-neutral-300 border border-white/5"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                onClick={() => navigate(`/chat/${profile.id}`)}
-                className="w-9 h-9 rounded-full bg-neutral-800 hover:bg-rose-500 flex items-center justify-center text-neutral-400 hover:text-white transition-all"
-              >
-                <MessageCircle className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
     </div>
