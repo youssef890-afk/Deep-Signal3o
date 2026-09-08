@@ -24,11 +24,11 @@ interface PostData {
 }
 
 export default function ProfilePage() {
-  const { id } = useParams<{ id: string }>();
+  const { userId } = useParams<{ userId: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const targetUserId = id || user?.id;
+  const targetUserId = userId || user?.id;
   const isOwnProfile = user?.id === targetUserId;
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -240,7 +240,7 @@ export default function ProfilePage() {
               </h1>
               {profile?.display_id && (
                 <span className="bg-rose-500/10 text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-mono">
-                  {profile.display_id}
+                  #{profile.display_id}
                 </span>
               )}
             </div>
@@ -249,7 +249,7 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* إحصائيات البروفايل (المنشورات، المتابعين، المتابَعين) */}
+        {/* إحصائيات البروفايل */}
         <div className="grid grid-cols-3 gap-2 mt-5 pt-4 border-t border-white/10 text-center">
           <div>
             <span className="block text-sm font-bold text-white">{userPosts.length}</span>
@@ -302,7 +302,7 @@ export default function ProfilePage() {
               </button>
 
               <button
-                onClick={() => navigate('/chat')}
+                onClick={() => navigate(`/chat/${targetUserId}`)}
                 className="bg-neutral-800 hover:bg-neutral-700 px-4 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-white/10 text-neutral-200"
               >
                 <MessageSquare className="w-4 h-4 text-rose-400" />
@@ -354,7 +354,7 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* 3. شبكة منشورات البروفايل (Grid Layout) */}
+      {/* 3. شبكة منشورات البروفايل */}
       <div className="space-y-3">
         <div className="flex items-center gap-2 text-xs font-bold text-neutral-400 border-b border-white/10 pb-2">
           <Grid className="w-4 h-4 text-rose-500" />
@@ -374,7 +374,7 @@ export default function ProfilePage() {
                 className="aspect-square bg-neutral-900 rounded-xl overflow-hidden border border-white/10 relative group cursor-pointer"
               >
                 {p.image_url ? (
-                  <img src={p.image_url} alt="Post" className="w-full h-full object-cover" />
+                  <img src={p.image_url} alt="Post" loading="lazy" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full p-2 bg-neutral-950 flex items-center justify-center text-[10px] text-neutral-400 text-center line-clamp-3">
                     {p.caption}
