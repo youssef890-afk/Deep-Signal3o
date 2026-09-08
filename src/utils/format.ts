@@ -1,26 +1,36 @@
 export function timeAgo(date: string): string {
   const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
 
-  if (seconds < 60) return 'just now';
+  if (seconds < 60) return 'الآن';
+  
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 60) return `منذ ${minutes} د`;
+  
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
+  if (hours < 24) return `منذ ${hours} س`;
+  
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
+  if (days < 7) return `منذ ${days} أ`;
+  
   const weeks = Math.floor(days / 7);
-  if (weeks < 4) return `${weeks}w`;
+  if (weeks < 4) return `منذ ${weeks} أسب`;
+  
   const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo`;
+  if (months < 12) return `منذ ${months} شهر`;
+  
   const years = Math.floor(days / 365);
-  return `${years}y`;
+  return `منذ ${years} سنة`;
 }
 
 export function formatTime(date: string): string {
-  return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(date).toLocaleTimeString('ar-MA', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export function getInitials(name: string): string {
+  if (!name) return 'م';
   const parts = name.trim().split(/\s+/);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return name.slice(0, 2).toUpperCase();
