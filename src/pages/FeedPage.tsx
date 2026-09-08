@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { useNavigate } from 'react-router-dom';
 import { 
   Heart, MessageCircle, Share2, Loader2, Send, 
-  ImagePlus, X, PlusCircle, MessageSquare 
+  ImagePlus, X, PlusCircle, Bell, Plus
 } from 'lucide-react';
 
 interface Post {
@@ -21,12 +22,24 @@ interface Comment {
   id: string;
   content: string;
   created_at: string;
-  profiles?: { username: string };
+  user_id: string;
+  profiles?: { username: string; avatar_url: string };
+}
+
+interface UserProfile {
+  id: string;
+  username: string;
+  avatar_url: string;
 }
 
 export default function FeedPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+
   const [posts, setPosts] = useState<Post[]>([]);
+  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+  const [activeUsers, setActiveUsers] = useState<UserProfile[]>([]);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
   const [loading, setLoading] = useState(true);
 
   // Modal State
@@ -43,21 +56,40 @@ export default function FeedPage() {
   const [loadingComments, setLoadingComments] = useState(false);
 
   useEffect(() => {
-    loadPosts();
+    loadUserProfileAndPosts();
   }, [user]);
 
-  async function loadPosts() {
+  async function loadUserProfileAndPosts() {
     setLoading(true);
     try {
+      // 1. جلب بيانات المستخدم الحالي
+      if (user) {
+        const { data: myProfile } = await supabase
+          .from('profiles')
+          .select('id, username, avatar_url')
+          .eq('id', user.id)
+          .single();
+        if (myProfile) setCurrentUserProfile(myProfile);
+      }
+
+      // 2. جلب جميع البروفايلات لاستخدامها في القصص وأصحاب المنشورات
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, username, avatar_url');
+
+      if (profilesData) {
+        setActiveUsers(profilesData.filter(p => p.id !== user?.id));
+      }
+
+      const profilesMap = new Map(profilesData?.map((p) => [p.id, p]));
+
+      // 3. جلب المنشورات والإعجابات
       const { data: postsData } = await supabase
         .from('posts')
         .select('*')
         .order('created_at', { ascending: false });
 
-      const { data: profilesData } = await supabase.from('profiles').select('id, username, avatar_url');
       const { data: likesData } = await supabase.from('likes').select('post_id, user_id');
-
-      const profilesMap = new Map(profilesData?.map((p) => [p.id, p]));
 
       const formatted = (postsData || []).map((post) => {
         const postLikes = likesData?.filter((l) => l.post_id === post.id) || [];
@@ -85,7 +117,6 @@ export default function FeedPage() {
   async function handleToggleLike(post: Post) {
     if (!user) return;
 
-    // Optimistic UI Update
     setPosts(prev => prev.map(p => {
       if (p.id === post.id) {
         return {
@@ -122,7 +153,7 @@ export default function FeedPage() {
 
     const { data: commentsData } = await supabase
       .from('comments')
-      .select('*, profiles(username)')
+      .select('*, profiles(username, avatar_url)')
       .eq('post_id', postId)
       .order('created_at', { ascending: true });
 
@@ -137,7 +168,7 @@ export default function FeedPage() {
     const { data, error } = await supabase
       .from('comments')
       .insert([{ post_id: postId, user_id: user.id, content: newComment.trim() }])
-      .select('*, profiles(username)')
+      .select('*, profiles(username, avatar_url)')
       .single();
 
     if (!error && data) {
@@ -192,7 +223,7 @@ export default function FeedPage() {
       setSelectedFile(null);
       setPreviewUrl(null);
       setIsModalOpen(false);
-      await loadPosts();
+      await loadUserProfileAndPosts();
     } catch (err: any) {
       alert('خطأ أثناء النشر: ' + err.message);
     } finally {
@@ -201,8 +232,109 @@ export default function FeedPage() {
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 py-6 pb-28 text-white">
-      {/* زر إطلاق واجهة إضافة منشور جديد */}
+    <div className="max-w-md mx-auto px-4 py-4 pb-28 text-white min-h-screen bg-black">
+      
+      {/* 1. القسم العلوي الأنيق (Header) */}
+      <header className="flex items-center justify-between py-3 mb-4 border-b border-white/10">
+        {/* جهة اليمين: صورة البروفايل بداخلها دائرة وعلامة + والعلم والاسم */}
+        <div className="flex items-center gap-3">
+          <div 
+            onClick={() => navigate(`/profile/${user?.id}`)}
+            className="relative cursor-pointer group"
+          >
+            <div className="w-11 h-11 rounded-full p-[2px] bg-gradient-to-tr from-rose-500 via-purple-500 to-amber-500">
+              {currentUserProfile?.avatar_url ? (
+                <img 
+                  src={currentUserProfile.avatar_url} 
+                  alt="Avatar" 
+                  className="w-full h-full object-cover rounded-full border border-black" 
+                />
+              ) : (
+                <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-sm text-white">
+                  {currentUserProfile?.username?.charAt(0).toUpperCase() || 'U'}
+                </div>
+              )}
+            </div>
+            {/* علامة + المصغرة أسفل البروفايل */}
+            <span 
+              onClick={(e) => { e.stopPropagation(); setIsModalOpen(true); }}
+              className="absolute -bottom-1 -left-1 bg-rose-500 text-white rounded-full p-0.5 border-2 border-black hover:scale-110 transition-transform"
+            >
+              <Plus className="w-3 h-3 stroke-[3]" />
+            </span>
+          </div>
+
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-bold tracking-wide">
+                {currentUserProfile?.username || 'مستخدم'}
+              </span>
+              <span className="text-xs">🇲🇦</span> {/* علم المغرب */}
+            </div>
+            <span className="text-[10px] text-neutral-400">مرحباً بك مجدداً</span>
+          </div>
+        </div>
+
+        {/* جهة اليسار: صندوق الإشعارات مع نقطة حمراء متوهجة */}
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => { setHasUnreadNotifications(false); navigate('/notifications'); }}
+            className="relative p-2.5 rounded-full bg-neutral-900 border border-white/10 hover:border-white/20 transition-all text-neutral-200"
+          >
+            <Bell className="w-5 h-5" />
+            {hasUnreadNotifications && (
+              <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-black animate-pulse" />
+            )}
+          </button>
+        </div>
+      </header>
+
+      {/* 2. شريط القصص (Stories Tray) */}
+      <div className="flex items-center gap-3 overflow-x-auto pb-4 mb-4 scrollbar-hide border-b border-white/5">
+        {/* قصة المستخدم الحالي */}
+        <div 
+          onClick={() => setIsModalOpen(true)}
+          className="flex flex-col items-center gap-1 cursor-pointer shrink-0"
+        >
+          <div className="relative w-14 h-14 rounded-full p-[2px] bg-neutral-800 border border-dashed border-rose-500/50 flex items-center justify-center">
+            {currentUserProfile?.avatar_url ? (
+              <img src={currentUserProfile.avatar_url} className="w-full h-full object-cover rounded-full opacity-80" />
+            ) : (
+              <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center text-xs font-bold">
+                {currentUserProfile?.username?.charAt(0)}
+              </div>
+            )}
+            <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-full">
+              <Plus className="w-5 h-5 text-rose-500" />
+            </div>
+          </div>
+          <span className="text-[10px] text-neutral-400 font-medium">قصتك</span>
+        </div>
+
+        {/* قصص بقية الأعضاء */}
+        {activeUsers.map((profile) => (
+          <div 
+            key={profile.id}
+            onClick={() => navigate(`/profile/${profile.id}`)}
+            className="flex flex-col items-center gap-1 cursor-pointer shrink-0"
+          >
+            <div className="w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600">
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} className="w-full h-full object-cover rounded-full border border-black" />
+              ) : (
+                <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-xs text-white border border-black">
+                  {profile.username?.charAt(0).toUpperCase()}
+                </div>
+              )}
+            </div>
+            <span className="text-[10px] text-neutral-300 font-medium max-w-[60px] truncate">
+              {profile.username}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* 3. زر إطلاق نافذة النشر السريعة */}
       <button
         onClick={() => setIsModalOpen(true)}
         className="w-full mb-6 py-3 px-4 bg-neutral-900 border border-white/10 hover:border-rose-500/50 rounded-2xl flex items-center justify-between text-neutral-400 text-xs shadow-lg transition-all"
@@ -272,20 +404,40 @@ export default function FeedPage() {
         </div>
       )}
 
-      {/* قائمة المنشورات */}
+      {/* 4. قائمة المنشورات (Feed List) */}
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-rose-500" /></div>
       ) : (
         <div className="space-y-4">
           {posts.map((post) => (
             <div key={post.id} id={`post-${post.id}`} className="bg-neutral-900 border border-white/10 rounded-2xl overflow-hidden">
-              <div className="p-3 flex items-center gap-3 border-b border-white/5">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-rose-500 to-purple-600 flex items-center justify-center font-bold text-xs">
-                  {post.profiles?.username?.charAt(0).toUpperCase()}
-                </div>
-                <div>
-                  <h3 className="text-xs font-bold">{post.profiles?.username}</h3>
-                  <p className="text-[10px] text-neutral-500">{new Date(post.created_at).toLocaleDateString('ar-EG')}</p>
+              {/* ترويسة المنشور (صورة + اسم المستخدم مع إمكانية الانتقال لبروفايله) */}
+              <div className="p-3 flex items-center justify-between border-b border-white/5">
+                <div 
+                  onClick={() => navigate(`/profile/${post.user_id}`)}
+                  className="flex items-center gap-3 cursor-pointer group"
+                >
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-rose-500 to-purple-600 p-[1.5px]">
+                    {post.profiles?.avatar_url ? (
+                      <img 
+                        src={post.profiles.avatar_url} 
+                        alt="Avatar" 
+                        className="w-full h-full object-cover rounded-full border border-black" 
+                      />
+                    ) : (
+                      <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-xs text-white">
+                        {post.profiles?.username?.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold group-hover:text-rose-400 transition-colors">
+                      {post.profiles?.username}
+                    </h3>
+                    <p className="text-[10px] text-neutral-500">
+                      {new Date(post.created_at).toLocaleDateString('ar-EG')}
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -323,7 +475,7 @@ export default function FeedPage() {
                 </button>
               </div>
 
-              {/* قسم التعليقات الانزلاقي */}
+              {/* قسم التعليقات */}
               {activePostId === post.id && (
                 <div className="bg-neutral-950 p-3 border-t border-white/10 space-y-3">
                   {loadingComments ? (
@@ -334,9 +486,28 @@ export default function FeedPage() {
                         <p className="text-[11px] text-neutral-500 text-center py-2">لا توجد تعليقات بعد. كن أول من يعلق!</p>
                       ) : (
                         comments.map((c) => (
-                          <div key={c.id} className="bg-neutral-900 p-2 rounded-xl text-xs">
-                            <span className="font-bold text-rose-400 block text-[11px]">{c.profiles?.username || 'مستخدم'}</span>
-                            <span className="text-neutral-200">{c.content}</span>
+                          <div key={c.id} className="bg-neutral-900 p-2 rounded-xl text-xs flex items-start gap-2">
+                            <div 
+                              onClick={() => navigate(`/profile/${c.user_id}`)}
+                              className="w-6 h-6 rounded-full bg-neutral-800 shrink-0 cursor-pointer overflow-hidden mt-0.5"
+                            >
+                              {c.profiles?.avatar_url ? (
+                                <img src={c.profiles.avatar_url} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="flex items-center justify-center h-full text-[10px] font-bold">
+                                  {c.profiles?.username?.charAt(0)}
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              <span 
+                                onClick={() => navigate(`/profile/${c.user_id}`)}
+                                className="font-bold text-rose-400 block text-[11px] cursor-pointer hover:underline"
+                              >
+                                {c.profiles?.username || 'مستخدم'}
+                              </span>
+                              <span className="text-neutral-200">{c.content}</span>
+                            </div>
                           </div>
                         ))
                       )}
