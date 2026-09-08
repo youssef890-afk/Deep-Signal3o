@@ -1,144 +1,203 @@
-import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/context/AuthContext';
-import { ImagePlus, X, Loader2, Sparkles } from 'lucide-react';
+import React, { useState } from 'react';
+import { Image, Video, FileText, X, BookOpen, Hash, Send } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
-interface CreatePostProps {
-  onPosted: () => void;
+interface CreatePostModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onPostCreated?: () => void;
 }
 
-export default function CreatePostModal({ onPosted }: CreatePostProps) {
-  const { user } = useAuth();
-  const [open, setOpen] = useState(false);
-  const [caption, setCaption] = useState('');
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+export const CreatePostModal: React.FC<CreatePostModalProps> = ({ isOpen, onClose, onPostCreated }) => {
+  const [postType, setPostType] = useState<'none' | 'text' | 'image' | 'video'>('none');
+  const [content, setContent] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [quranTrack, setQuranTrack] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
+  if (!isOpen) return null;
 
-    const reader = new FileReader();
-    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
-
-    setUploading(true);
-    const ext = file.name.split('.').pop();
-    const filePath = `${user.id}/${Date.now()}.${ext}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('posts')
-      .upload(filePath, file);
-
-    if (uploadError) {
-      alert('Failed to upload image: ' + uploadError.message);
-      setUploading(false);
-      return;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
     }
-
-    const { data: urlData } = supabase.storage.from('posts').getPublicUrl(filePath);
-    setImagePreview(urlData.publicUrl);
-    setUploading(false);
   };
 
-  const handleSubmit = async () => {
-    if (!imagePreview || !user) return;
+  const handleUploadAndPost = async () => {
+    if (!content && !file) return;
+    setLoading(true);
 
-    const { error } = await supabase.from('posts').insert({
-      image_url: imagePreview,
-      caption: caption.trim() || null,
-      user_id: user.id,
-    });
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) throw new Error('يرجى تسجيل الدخول أولاً');
 
-    if (error) {
-      alert('Failed to create post: ' + error.message);
-      return;
+      let imageUrl = '';
+      let videoUrl = '';
+
+      // رفع الملف إلى Supabase Storage إذا كان موجوداً
+      if (file) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Date.now()}.${fileExt}`;
+        const filePath = `${userData.user.id}/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('posts')
+          .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage
+          .from('posts')
+          .getPublicUrl(filePath);
+
+        if (postType === 'image') imageUrl = publicUrlData.publicUrl;
+        if (postType === 'video') videoUrl = publicUrlData.publicUrl;
+      }
+
+      // إضافة المنشور في قاعدة البيانات
+      const { error: dbError } = await supabase.from('posts').insert([
+        {
+          user_id: userData.user.id,
+          content: quranTrack ? `${content}\n\n📖 خلفية قرآنية: ${quranTrack}` : content,
+          image_url: imageUrl || null,
+          video_url: videoUrl || null,
+        },
+      ]);
+
+      if (dbError) throw dbError;
+
+      // إعادة تعيين وإغلاق
+      setContent('');
+      setFile(null);
+      setPostType('none');
+      setQuranTrack('');
+      if (onPostCreated) onPostCreated();
+      onClose();
+    } catch (err: any) {
+      alert('حدث خطأ أثناء النشر: ' + err.message);
+    } finally {
+      setLoading(false);
     }
-
-    setCaption('');
-    setImagePreview(null);
-    setOpen(false);
-    onPosted();
   };
-
-  const handleClose = () => {
-    setCaption('');
-    setImagePreview(null);
-    setOpen(false);
-  };
-
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="w-full flex items-center gap-3 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all text-neutral-300 hover:text-white group"
-      >
-        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-rose-500/20 to-amber-500/20 flex items-center justify-center group-hover:from-rose-500/30 group-hover:to-amber-500/30 transition-all">
-          <ImagePlus className="w-5 h-5" />
-        </div>
-        <span className="text-sm font-medium">Share something with the world...</span>
-        <Sparkles className="w-4 h-4 ml-auto text-neutral-600" />
-      </button>
-    );
-  }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={handleClose} />
-
-      <div className="relative w-full max-w-lg bg-neutral-900 border border-white/10 rounded-2xl overflow-hidden animate-scale-in shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-          <h2 className="text-lg font-semibold">Create Post</h2>
-          <button onClick={handleClose} className="text-neutral-400 hover:text-white transition-colors">
-            <X className="w-5 h-5" />
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-neutral-900 border border-neutral-800 w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-5 text-white shadow-2xl">
+        
+        {/* رأس النافذة */}
+        <div className="flex items-center justify-between border-b border-neutral-800 pb-3 mb-4">
+          <h3 className="text-lg font-bold">إنشاء منشور جديد</h3>
+          <button onClick={onClose} className="text-neutral-400 hover:text-white p-1">
+            <X size={22} />
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
-          {imagePreview ? (
-            <div className="relative rounded-xl overflow-hidden">
-              <img src={imagePreview} alt="Preview" className="w-full max-h-80 object-cover" />
-              <button
-                onClick={() => setImagePreview(null)}
-                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur flex items-center justify-center text-white hover:bg-black/80 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            <label className="flex flex-col items-center justify-center gap-3 py-12 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:border-rose-500/30 hover:bg-white/5 transition-all">
-              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-500/20 to-amber-500/20 flex items-center justify-center">
-                <ImagePlus className="w-7 h-7 text-rose-400" />
+        {/* المرحلة 1: اختيار نوع المنشور (3 اختيارات) */}
+        {postType === 'none' ? (
+          <div className="grid grid-cols-3 gap-3 my-6">
+            <button
+              onClick={() => setPostType('text')}
+              className="flex flex-col items-center justify-center p-4 bg-neutral-800 hover:bg-neutral-700 rounded-2xl border border-neutral-700 transition"
+            >
+              <FileText size={32} className="text-blue-400 mb-2" />
+              <span className="text-xs font-semibold">كتابة منشور</span>
+            </button>
+
+            <button
+              onClick={() => setPostType('image')}
+              className="flex flex-col items-center justify-center p-4 bg-neutral-800 hover:bg-neutral-700 rounded-2xl border border-neutral-700 transition"
+            >
+              <Image size={32} className="text-green-400 mb-2" />
+              <span className="text-xs font-semibold">نشر صورة</span>
+            </button>
+
+            <button
+              onClick={() => setPostType('video')}
+              className="flex flex-col items-center justify-center p-4 bg-neutral-800 hover:bg-neutral-700 rounded-2xl border border-neutral-700 transition"
+            >
+              <Video size={32} className="text-purple-400 mb-2" />
+              <span className="text-xs font-semibold">نشر فيديو</span>
+            </button>
+          </div>
+        ) : (
+          /* المرحلة 2: نموذج كتابة المنشور والميديا */
+          <div className="space-y-4">
+            
+            {/* زر العودة لاختيار نوع آخر */}
+            <button
+              onClick={() => { setPostType('none'); setFile(null); }}
+              className="text-xs text-blue-400 hover:underline mb-1 inline-block"
+            >
+              ← تغيير نوع المنشور
+            </button>
+
+            {/* مربع النص والهاشتاغ */}
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="اكتب شيئاً مفيداً... استخدم #هاشتاغ للمواضيع"
+              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm focus:outline-none focus:border-neutral-600 resize-none h-28"
+            />
+
+            {/* اختيار ملف صورة (يظهر فقط الصور من الهاتف) */}
+            {postType === 'image' && (
+              <div className="bg-neutral-950 border border-dashed border-neutral-700 p-4 rounded-xl text-center">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  id="image-input"
+                  className="hidden"
+                />
+                <label htmlFor="image-input" className="cursor-pointer text-sm text-neutral-300 flex flex-col items-center">
+                  <Image className="mb-1 text-green-400" size={24} />
+                  {file ? file.name : 'إضغط هنا لاختيار صورة من الهاتف'}
+                </label>
               </div>
-              <span className="text-sm text-neutral-400">Click to upload an image</span>
-              <input type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
-            </label>
-          )}
-
-          <textarea
-            value={caption}
-            onChange={(e) => setCaption(e.target.value)}
-            placeholder="Write a caption..."
-            rows={3}
-            maxLength={500}
-            className="w-full bg-neutral-800/80 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 focus:ring-2 focus:ring-rose-500/20 transition-all resize-none"
-          />
-
-          <button
-            onClick={handleSubmit}
-            disabled={!imagePreview || uploading}
-            className="w-full bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 text-white font-semibold py-3 rounded-xl hover:opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {uploading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" /> Uploading...
-              </>
-            ) : (
-              'Share Post'
             )}
-          </button>
-        </div>
+
+            {/* اختيار ملف فيديو (يظهر فقط الفيديوهات من الهاتف) */}
+            {postType === 'video' && (
+              <div className="bg-neutral-950 border border-dashed border-neutral-700 p-4 rounded-xl text-center">
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={handleFileChange}
+                  id="video-input"
+                  className="hidden"
+                />
+                <label htmlFor="video-input" className="cursor-pointer text-sm text-neutral-300 flex flex-col items-center">
+                  <Video className="mb-1 text-purple-400" size={24} />
+                  {file ? file.name : 'إضغط هنا لاختيار فيديو من الهاتف'}
+                </label>
+              </div>
+            )}
+
+            {/* قسم إرفاق القرآن بدل الموسيقى */}
+            <div className="flex items-center space-x-2 space-x-reverse bg-neutral-950 p-2.5 rounded-xl border border-neutral-800">
+              <BookOpen size={18} className="text-emerald-400" />
+              <input
+                type="text"
+                value={quranTrack}
+                onChange={(e) => setQuranTrack(e.target.value)}
+                placeholder="إضافة سورة أو قارئ (مثال: سورة الكهف - عبد الباسط)"
+                className="bg-transparent border-none text-xs w-full text-white focus:outline-none"
+              />
+            </div>
+
+            {/* زر النشر */}
+            <button
+              onClick={handleUploadAndPost}
+              disabled={loading}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 rounded-xl transition flex items-center justify-center space-x-2 space-x-reverse disabled:opacity-50"
+            >
+              <Send size={18} />
+              <span>{loading ? 'جاري النشر...' : 'نشر الآن'}</span>
+            </button>
+          </div>
+        )}
+
       </div>
     </div>
   );
-}
+};
