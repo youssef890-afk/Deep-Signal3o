@@ -59,7 +59,8 @@ function MobileNav() {
       {items.map((item) => {
         const isActive = location.pathname === item.path ||
           (item.path === '/chat' && location.pathname.startsWith('/chat')) ||
-          (item.path === '/rooms' && location.pathname.startsWith('/rooms'));
+          (item.path === '/rooms' && location.pathname.startsWith('/rooms')) ||
+          (item.label === 'Profile' && location.pathname.startsWith('/profile/'));
         const Icon = item.icon;
         return (
           <button
