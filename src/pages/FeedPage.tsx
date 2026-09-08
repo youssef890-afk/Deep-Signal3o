@@ -4,13 +4,14 @@ import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { 
   Heart, MessageCircle, Share2, Loader2, Send, 
-  ImagePlus, X, PlusCircle, Bell, Plus
+  ImagePlus, X, PlusCircle, Bell, Plus, Video
 } from 'lucide-react';
 
 interface Post {
   id: string;
   user_id: string;
   image_url: string;
+  video_url?: string;
   caption: string;
   created_at: string;
   profiles?: { username: string; avatar_url: string };
@@ -47,6 +48,7 @@ export default function FeedPage() {
   const [caption, setCaption] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isVideo, setIsVideo] = useState(false);
   const [uploading, setUploading] = useState(false);
 
   // Comments State
@@ -62,7 +64,6 @@ export default function FeedPage() {
   async function loadUserProfileAndPosts() {
     setLoading(true);
     try {
-      // 1. جلب بيانات المستخدم الحالي
       if (user) {
         const { data: myProfile } = await supabase
           .from('profiles')
@@ -72,7 +73,6 @@ export default function FeedPage() {
         if (myProfile) setCurrentUserProfile(myProfile);
       }
 
-      // 2. جلب جميع البروفايلات لاستخدامها في القصص وأصحاب المنشورات
       const { data: profilesData } = await supabase
         .from('profiles')
         .select('id, username, avatar_url');
@@ -83,7 +83,6 @@ export default function FeedPage() {
 
       const profilesMap = new Map(profilesData?.map((p) => [p.id, p]));
 
-      // 3. جلب المنشورات والإعجابات
       const { data: postsData } = await supabase
         .from('posts')
         .select('*')
@@ -177,19 +176,23 @@ export default function FeedPage() {
     }
   }
 
+  // اختيار ملف (صورة أو فيديو)
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
     setSelectedFile(file);
+    setIsVideo(file.type.startsWith('video/'));
     setPreviewUrl(URL.createObjectURL(file));
   }
 
+  // إنشاء منشور أو ريلز جديد
   async function handleCreatePost(e: React.FormEvent) {
     e.preventDefault();
     if (!caption.trim() && !selectedFile) return;
 
     setUploading(true);
     let finalImageUrl = '';
+    let finalVideoUrl = '';
 
     try {
       if (selectedFile) {
@@ -206,7 +209,11 @@ export default function FeedPage() {
           .from('posts')
           .getPublicUrl(fileName);
 
-        finalImageUrl = publicUrlData.publicUrl;
+        if (isVideo) {
+          finalVideoUrl = publicUrlData.publicUrl;
+        } else {
+          finalImageUrl = publicUrlData.publicUrl;
+        }
       }
 
       const { error: insertError } = await supabase.from('posts').insert([
@@ -214,6 +221,7 @@ export default function FeedPage() {
           user_id: user?.id,
           caption: caption.trim(),
           image_url: finalImageUrl,
+          video_url: finalVideoUrl,
         },
       ]);
 
@@ -234,9 +242,8 @@ export default function FeedPage() {
   return (
     <div className="max-w-md mx-auto px-4 py-4 pb-28 text-white min-h-screen bg-black">
       
-      {/* 1. القسم العلوي الأنيق (Header) */}
+      {/* 1. القسم العلوي (Header) */}
       <header className="flex items-center justify-between py-3 mb-4 border-b border-white/10">
-        {/* جهة اليمين: صورة البروفايل بداخلها دائرة وعلامة + والعلم والاسم */}
         <div className="flex items-center gap-3">
           <div 
             onClick={() => navigate(`/profile/${user?.id}`)}
@@ -255,7 +262,6 @@ export default function FeedPage() {
                 </div>
               )}
             </div>
-            {/* علامة + المصغرة أسفل البروفايل */}
             <span 
               onClick={(e) => { e.stopPropagation(); setIsModalOpen(true); }}
               className="absolute -bottom-1 -left-1 bg-rose-500 text-white rounded-full p-0.5 border-2 border-black hover:scale-110 transition-transform"
@@ -269,13 +275,12 @@ export default function FeedPage() {
               <span className="text-sm font-bold tracking-wide">
                 {currentUserProfile?.username || 'مستخدم'}
               </span>
-              <span className="text-xs">🇲🇦</span> {/* علم المغرب */}
+              <span className="text-xs">🇲🇦</span>
             </div>
             <span className="text-[10px] text-neutral-400">مرحباً بك مجدداً</span>
           </div>
         </div>
 
-        {/* جهة اليسار: صندوق الإشعارات مع نقطة حمراء متوهجة */}
         <div className="flex items-center gap-3">
           <button 
             onClick={() => { setHasUnreadNotifications(false); navigate('/notifications'); }}
@@ -291,7 +296,6 @@ export default function FeedPage() {
 
       {/* 2. شريط القصص (Stories Tray) */}
       <div className="flex items-center gap-3 overflow-x-auto pb-4 mb-4 scrollbar-hide border-b border-white/5">
-        {/* قصة المستخدم الحالي */}
         <div 
           onClick={() => setIsModalOpen(true)}
           className="flex flex-col items-center gap-1 cursor-pointer shrink-0"
@@ -311,7 +315,6 @@ export default function FeedPage() {
           <span className="text-[10px] text-neutral-400 font-medium">قصتك</span>
         </div>
 
-        {/* قصص بقية الأعضاء */}
         {activeUsers.map((profile) => (
           <div 
             key={profile.id}
@@ -334,7 +337,7 @@ export default function FeedPage() {
         ))}
       </div>
 
-      {/* 3. زر إطلاق نافذة النشر السريعة */}
+      {/* 3. زر إطلاق نافذة النشر */}
       <button
         onClick={() => setIsModalOpen(true)}
         className="w-full mb-6 py-3 px-4 bg-neutral-900 border border-white/10 hover:border-rose-500/50 rounded-2xl flex items-center justify-between text-neutral-400 text-xs shadow-lg transition-all"
@@ -344,7 +347,7 @@ export default function FeedPage() {
           ماذا يدور في ذهنك اليوم؟
         </span>
         <span className="bg-rose-500/10 text-rose-500 px-3 py-1 rounded-xl font-semibold text-[11px]">
-          + منشور جديد
+          + منشور / ريلز
         </span>
       </button>
 
@@ -353,7 +356,7 @@ export default function FeedPage() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-neutral-900 border border-white/10 rounded-2xl w-full max-w-md p-4 relative shadow-2xl animate-in fade-in zoom-in duration-200">
             <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-3">
-              <h3 className="text-sm font-bold text-white">إنشاء منشور جديد</h3>
+              <h3 className="text-sm font-bold text-white">إنشاء منشور / ريلز جديد</h3>
               <button 
                 onClick={() => setIsModalOpen(false)}
                 className="text-neutral-400 hover:text-white p-1 rounded-lg"
@@ -366,17 +369,21 @@ export default function FeedPage() {
               <textarea
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}
-                placeholder="اكتب موضوع المنشور هنا..."
-                className="w-full bg-neutral-950 border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-rose-500 resize-none h-28"
+                placeholder="اكتب موضوع المنشور أو وصف الفيديو..."
+                className="w-full bg-neutral-950 border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-rose-500 resize-none h-24"
               />
 
               {previewUrl && (
-                <div className="relative w-full h-44 bg-neutral-950 rounded-xl overflow-hidden border border-white/10">
-                  <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                <div className="relative w-full h-48 bg-neutral-950 rounded-xl overflow-hidden border border-white/10">
+                  {isVideo ? (
+                    <video src={previewUrl} controls className="w-full h-full object-cover" />
+                  ) : (
+                    <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                  )}
                   <button
                     type="button"
-                    onClick={() => { setSelectedFile(null); setPreviewUrl(null); }}
-                    className="absolute top-2 right-2 bg-black/80 p-1.5 rounded-full text-white"
+                    onClick={() => { setSelectedFile(null); setPreviewUrl(null); setIsVideo(false); }}
+                    className="absolute top-2 right-2 bg-black/80 p-1.5 rounded-full text-white z-10"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -385,9 +392,10 @@ export default function FeedPage() {
 
               <div className="flex items-center justify-between gap-2 pt-2">
                 <label className="flex items-center gap-2 cursor-pointer bg-neutral-950 border border-white/10 hover:border-white/20 rounded-xl px-3 py-2 text-xs text-neutral-300">
-                  <ImagePlus className="w-4 h-4 text-rose-500" />
-                  <span>{selectedFile ? 'تغيير الصورة' : 'إضافة صورة'}</span>
-                  <input type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
+                  <Video className="w-4 h-4 text-rose-500" />
+                  <ImagePlus className="w-4 h-4 text-amber-500" />
+                  <span>{selectedFile ? 'تغيير الملف' : 'صورة أو فيديو (Reels)'}</span>
+                  <input type="file" accept="image/*,video/*" onChange={handleFileSelect} className="hidden" />
                 </label>
 
                 <button
@@ -396,7 +404,7 @@ export default function FeedPage() {
                   className="flex items-center gap-1.5 px-5 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl text-xs font-semibold"
                 >
                   {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  نشر الان
+                  نشر الآن
                 </button>
               </div>
             </form>
@@ -411,7 +419,6 @@ export default function FeedPage() {
         <div className="space-y-4">
           {posts.map((post) => (
             <div key={post.id} id={`post-${post.id}`} className="bg-neutral-900 border border-white/10 rounded-2xl overflow-hidden">
-              {/* ترويسة المنشور (صورة + اسم المستخدم مع إمكانية الانتقال لبروفايله) */}
               <div className="p-3 flex items-center justify-between border-b border-white/5">
                 <div 
                   onClick={() => navigate(`/profile/${post.user_id}`)}
@@ -442,13 +449,19 @@ export default function FeedPage() {
               </div>
 
               {post.caption && <p className="p-3 text-xs text-neutral-200 leading-relaxed">{post.caption}</p>}
+              
               {post.image_url && (
                 <div className="w-full bg-neutral-950">
                   <img src={post.image_url} alt="Post" className="w-full max-h-96 object-contain" />
                 </div>
               )}
 
-              {/* أزرار التفاعل (Like, Comment, Share) */}
+              {post.video_url && (
+                <div className="w-full bg-neutral-950">
+                  <video src={post.video_url} controls className="w-full max-h-96 object-contain" />
+                </div>
+              )}
+
               <div className="p-3 flex items-center justify-between border-t border-white/5 text-neutral-400 text-xs">
                 <button 
                   onClick={() => handleToggleLike(post)} 
@@ -475,7 +488,6 @@ export default function FeedPage() {
                 </button>
               </div>
 
-              {/* قسم التعليقات */}
               {activePostId === post.id && (
                 <div className="bg-neutral-950 p-3 border-t border-white/10 space-y-3">
                   {loadingComments ? (
