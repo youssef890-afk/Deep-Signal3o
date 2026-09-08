@@ -1,0 +1,10 @@
+{
+  "short_name": "Deep-Signal",
+  "name": "Deep-Signal Social App",
+  "start_url": "/",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "display": "standalone",
+  "orientation": "portrait"
+}
+
