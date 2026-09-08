@@ -10,27 +10,24 @@ import ProfilePage from '@/pages/ProfilePage';
 import SearchPage from '@/pages/SearchPage';
 import RoomsPage from '@/pages/RoomsPage';
 import RoomDetailPage from '@/pages/RoomDetailPage';
-import { Home, MessageCircle, User, Search as SearchIcon, Signal, Mic } from 'lucide-react';
-import { Loader2 } from 'lucide-react';
+import ReelsPage from '@/pages/ReelsPage';
+import { Home, MessageCircle, User, Search as SearchIcon, Signal, Mic, Film, Loader2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 // =============================================
-// 1. تخطيط الصفحات المحمية (بشاشة واسعة للهواتف)
+// 1. تخطيط الصفحات المحمية
 // =============================================
 function ProtectedLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-black text-white">
-      {/* الشريط الجانبي يظهر فقط في الشاشات الكبيرة */}
       <div className="hidden md:block">
         <Sidebar />
       </div>
 
-      {/* الشاشة واسعة على الهاتف ومزاحة على الحواسيب */}
       <main className="md:ml-64 min-h-screen pb-20 md:pb-0">
         {children}
       </main>
 
-      {/* شريط التنقل السفلي للهواتف فقط */}
       <div className="md:hidden">
         <MobileNav />
       </div>
@@ -39,7 +36,7 @@ function ProtectedLayout({ children }: { children: ReactNode }) {
 }
 
 // =============================================
-// 2. شريط التنقل السفلي (Mobile Navigation)
+// 2. شريط التنقل السفلي (مع إضافة الريلز)
 // =============================================
 function MobileNav() {
   const { profile } = useAuth();
@@ -48,6 +45,7 @@ function MobileNav() {
 
   const items = [
     { path: '/feed', icon: Home, label: 'Feed' },
+    { path: '/reels', icon: Film, label: 'Reels' },
     { path: '/search', icon: SearchIcon, label: 'Search' },
     { path: '/chat', icon: MessageCircle, label: 'Messages' },
     { path: '/rooms', icon: Mic, label: 'Rooms' },
@@ -66,11 +64,11 @@ function MobileNav() {
           <button
             key={item.path}
             onClick={() => navigate(item.path)}
-            className={`flex flex-col items-center gap-0.5 px-4 py-1.5 transition-all ${
+            className={`flex flex-col items-center gap-0.5 px-3 py-1.5 transition-all ${
               isActive ? 'text-rose-500' : 'text-neutral-500'
             }`}
           >
-            <Icon className="w-6 h-6" strokeWidth={isActive ? 2.5 : 2} />
+            <Icon className="w-5 h-5" strokeWidth={isActive ? 2.5 : 2} />
             <span className="text-[10px] font-medium">{item.label}</span>
           </button>
         );
@@ -80,7 +78,7 @@ function MobileNav() {
 }
 
 // =============================================
-// 3. بوابة المصادقة (Auth Gate)
+// 3. بوابة المصادقة (المسارات)
 // =============================================
 function AuthGate() {
   const { session, loading } = useAuth();
@@ -110,6 +108,7 @@ function AuthGate() {
   return (
     <Routes>
       <Route path="/feed" element={<ProtectedLayout><FeedPage /></ProtectedLayout>} />
+      <Route path="/reels" element={<ProtectedLayout><ReelsPage /></ProtectedLayout>} />
       <Route path="/search" element={<ProtectedLayout><SearchPage /></ProtectedLayout>} />
       <Route path="/chat" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
       <Route path="/chat/:userId" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
