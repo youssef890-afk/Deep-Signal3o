@@ -11,7 +11,7 @@ import SearchPage from '@/pages/SearchPage';
 import RoomsPage from '@/pages/RoomsPage';
 import RoomDetailPage from '@/pages/RoomDetailPage';
 import ReelsPage from '@/pages/ReelsPage';
-import { Home, MessageCircle, User, Search as SearchIcon, Signal, Mic, Film, Loader2 } from 'lucide-react';
+import { Home, MessageCircle, User, Search as SearchIcon, Signal, Mic, Film, PlusCircle, Loader2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 // =============================================
@@ -36,7 +36,7 @@ function ProtectedLayout({ children }: { children: ReactNode }) {
 }
 
 // =============================================
-// 2. شريط التنقل السفلي (مع إضافة الريلز)
+// 2. شريط التنقل السفلي مع زر النشر +
 // =============================================
 function MobileNav() {
   const { profile } = useAuth();
@@ -46,9 +46,8 @@ function MobileNav() {
   const items = [
     { path: '/feed', icon: Home, label: 'Feed' },
     { path: '/reels', icon: Film, label: 'Reels' },
-    { path: '/search', icon: SearchIcon, label: 'Search' },
+    { path: '/create', icon: PlusCircle, label: 'نشر', isAction: true },
     { path: '/chat', icon: MessageCircle, label: 'Messages' },
-    { path: '/rooms', icon: Mic, label: 'Rooms' },
     ...(profile ? [{ path: `/profile/${profile.id}`, icon: User, label: 'Profile' }] : []),
   ];
 
@@ -57,9 +56,23 @@ function MobileNav() {
       {items.map((item) => {
         const isActive = location.pathname === item.path ||
           (item.path === '/chat' && location.pathname.startsWith('/chat')) ||
-          (item.path === '/rooms' && location.pathname.startsWith('/rooms')) ||
           (item.label === 'Profile' && location.pathname.startsWith('/profile/'));
         const Icon = item.icon;
+
+        if (item.isAction) {
+          return (
+            <button
+              key={item.path}
+              onClick={() => navigate('/feed')} // وجه المستخدم مباشرة لمنطقة نشر فيديو/صورة
+              className="flex flex-col items-center justify-center -mt-5"
+            >
+              <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-rose-500 to-pink-500 flex items-center justify-center shadow-lg shadow-rose-500/30 border-2 border-black">
+                <Icon className="w-6 h-6 text-white" strokeWidth={2.5} />
+              </div>
+            </button>
+          );
+        }
+
         return (
           <button
             key={item.path}
@@ -78,7 +91,7 @@ function MobileNav() {
 }
 
 // =============================================
-// 3. بوابة المصادقة (المسارات)
+// 3. بوابة المصادقة
 // =============================================
 function AuthGate() {
   const { session, loading } = useAuth();
@@ -120,9 +133,6 @@ function AuthGate() {
   );
 }
 
-// =============================================
-// 4. التطبيق الرئيسي
-// =============================================
 export default function App() {
   return (
     <AuthProvider>
