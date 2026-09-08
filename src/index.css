@@ -102,3 +102,16 @@
 .heart-burst {
   animation: heartBurst 0.8s ease-out;
 }
+
+/* ==========================================================================
+   إخفاء أدوات التطوير والأيقونات العائمة (Supabase / DevTools)
+   ========================================================================== */
+iframe[src*="supabase"], 
+div[class*="supabase-devtools"],
+button[aria-label*="Supabase"],
+#supabase-devtools-root,
+[data-supabase-devtools] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
