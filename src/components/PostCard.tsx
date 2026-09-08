@@ -22,6 +22,10 @@ export default function PostCard({ post, onUpdate }: PostCardProps) {
 
   const isOwner = user?.id === post.user_id;
 
+  const handleNavigateToProfile = () => {
+    navigate(`/profile/${post.user_id}`);
+  };
+
   const handleLike = async () => {
     if (!user) return;
     setIsLiking(true);
@@ -69,21 +73,29 @@ export default function PostCard({ post, onUpdate }: PostCardProps) {
   return (
     <div className="bg-neutral-900/60 border border-white/10 rounded-xl p-4 mb-4">
       <div className="flex items-center gap-3 mb-3">
-        <Avatar
-          src={post.profile?.avatar_url}
-          name={post.profile?.full_name || post.profile?.username || 'User'}
-          size="sm"
-          onClick={() => navigate(`/profile/${post.user_id}`)}
-        />
+        {/* جعل الأفاتار وسيلة للانتقال */}
+        <div className="cursor-pointer" onClick={handleNavigateToProfile}>
+          <Avatar
+            src={post.profile?.avatar_url}
+            name={post.profile?.full_name || post.profile?.username || 'User'}
+            size="sm"
+          />
+        </div>
+
+        {/* جعل الاسم والـ ID قابلين للضغط للانتقال إلى البروفايل */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <p className="font-bold text-white text-sm truncate">
+          <div 
+            className="flex items-center gap-2 cursor-pointer w-fit hover:opacity-80 transition"
+            onClick={handleNavigateToProfile}
+          >
+            <p className="font-bold text-white text-sm truncate hover:underline">
               {post.profile?.username || 'Unknown User'}
             </p>
             <p className="text-xs text-neutral-500">#{post.profile?.display_id || '0000'}</p>
           </div>
           <p className="text-xs text-neutral-500">{new Date(post.created_at).toLocaleDateString()}</p>
         </div>
+
         {isOwner && (
           <div className="flex items-center gap-2">
             <button
@@ -101,6 +113,7 @@ export default function PostCard({ post, onUpdate }: PostCardProps) {
         <img
           src={post.image_url}
           alt="post"
+          loading="lazy"
           className="rounded-lg max-h-96 w-full object-cover mb-3"
         />
       )}
