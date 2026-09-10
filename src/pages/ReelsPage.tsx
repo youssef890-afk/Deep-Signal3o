@@ -1,44 +1,85 @@
-import { useState, useEffect, useRef } from 'react';
+import {
+  useState,
+  useEffect,
+  useRef,
+} from 'react';
+import {
+  useNavigate,
+} from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { Heart, MessageCircle, Share2, Music2, Loader2 } from 'lucide-react';
+import {
+  Heart,
+  MessageCircle,
+  Share2,
+  Music2,
+  Loader2,
+} from 'lucide-react';
 import Avatar from '@/components/Avatar';
-import { useNavigate } from 'react-router-dom';
 
 interface VideoPost {
   id: string;
   video_url: string;
-  caption: string;
+  caption: string | null;
   user_id: string;
   created_at: string;
-  profile?: {
+  profile: {
     username: string;
-    avatar_url: string;
-  };
+    avatar_url: string | null;
+  } | null;
 }
 
 export default function ReelsPage() {
-  const [videos, setVideos] = useState<VideoPost[]>([]);
-  const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
+  const [videos, setVideos] =
+    useState<VideoPost[]>([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const navigate =
+    useNavigate();
 
   useEffect(() => {
-    fetchReels();
+    void fetchReels();
   }, []);
 
   async function fetchReels() {
     setLoading(true);
-    try {
-      // جلب المنشورات التي تحتوي على فيديوهات فقط
-      const { data, error } = await supabase
-        .from('posts')
-        .select('*, profile:profiles(username, avatar_url)')
-        .not('video_url', 'is', null)
-        .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setVideos(data || []);
-    } catch (err) {
-      console.error('Error fetching reels:', err);
+    try {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from('posts')
+        .select(
+          '*, profile:profiles(username, avatar_url)'
+        )
+        .not(
+          'video_url',
+          'is',
+          null
+        )
+        .order(
+          'created_at',
+          {
+            ascending: false,
+          }
+        );
+
+      if (error) {
+        throw error;
+      }
+
+      setVideos(
+        (data as VideoPost[]) || []
+      );
+    } catch (error: unknown) {
+      console.error(
+        'Error fetching reels:',
+        error
+      );
+
+      setVideos([]);
     } finally {
       setLoading(false);
     }
@@ -55,7 +96,9 @@ export default function ReelsPage() {
   if (videos.length === 0) {
     return (
       <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4">
-        <p className="text-neutral-400 text-sm">لا توجد فيديوهات ريلز حالياً</p>
+        <p className="text-neutral-400 text-sm">
+          لا توجد فيديوهات ريلز حالياً
+        </p>
       </div>
     );
   }
@@ -63,30 +106,79 @@ export default function ReelsPage() {
   return (
     <div className="h-screen w-full bg-black snap-y snap-mandatory overflow-y-scroll scrollbar-hide">
       {videos.map((video) => (
-        <ReelItem key={video.id} video={video} onNavigate={navigate} />
+        <ReelItem
+          key={video.id}
+          video={video}
+          onNavigate={navigate}
+        />
       ))}
     </div>
   );
 }
 
-function ReelItem({ video, onNavigate }: { video: VideoPost; onNavigate: any }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [isPlaying, setIsPlaying] = useState(true);
+function ReelItem({
+  video,
+  onNavigate,
+}: {
+  video: VideoPost;
+  onNavigate: ReturnType<typeof useNavigate>;
+}) {
+  const videoRef =
+    useRef<HTMLVideoElement>(null);
+
+  const [isPlaying, setIsPlaying] =
+    useState(true);
 
   const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
+    if (!videoRef.current) {
+      return;
     }
+
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      void videoRef.current.play();
+    }
+
+    setIsPlaying(
+      (previous) => !previous
+    );
   };
+
+  async function handleShare() {
+    if (
+      typeof navigator.share !==
+      'function'
+    ) {
+      return;
+    }
+
+    try {
+      await navigator.share({
+        title: 'Deep Signal Reel',
+        url: window.location.href,
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof DOMException &&
+        error.name === 'AbortError'
+      ) {
+        return;
+      }
+
+      console.error(
+        'Error sharing reel:',
+        error
+      );
+    }
+  }
+
+  const username =
+    video.profile?.username ||
+    'User';
 
   return (
     <div className="h-screen w-full snap-start relative flex items-center justify-center bg-black overflow-hidden">
-      {/* الفيديو الرئيسي */}
       <video
         ref={videoRef}
         src={video.video_url}
@@ -97,41 +189,62 @@ function ReelItem({ video, onNavigate }: { video: VideoPost; onNavigate: any }) 
         className="h-full w-full object-cover cursor-pointer"
       />
 
-      {/* التدرج اللوني فوق الفيديو بأسفل الشاشة */}
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80 pointer-events-none" />
 
-      {/* تفاصيل الكاتب والوصف أسفل يسار الفيديو */}
       <div className="absolute bottom-20 left-4 right-16 text-white z-10 space-y-3">
-        <div 
+        <div
           className="flex items-center gap-3 cursor-pointer"
-          onClick={() => onNavigate(`/profile/${video.user_id}`)}
+          onClick={() =>
+            onNavigate(
+              `/profile/${video.user_id}`
+            )
+          }
         >
           <Avatar
-            src={video.profile?.avatar_url}
-            name={video.profile?.username || 'User'}
+            src={
+              video.profile?.avatar_url
+            }
+            name={username}
             size="sm"
           />
-          <span className="font-bold text-sm">@{video.profile?.username}</span>
+
+          <span className="font-bold text-sm">
+            @{username}
+          </span>
         </div>
 
-        {video.caption && <p className="text-xs text-neutral-200 line-clamp-2">{video.caption}</p>}
+        {video.caption && (
+          <p className="text-xs text-neutral-200 line-clamp-2">
+            {video.caption}
+          </p>
+        )}
 
         <div className="flex items-center gap-2 text-xs text-neutral-300">
           <Music2 className="w-3.5 h-3.5 animate-spin" />
-          <span>الصوت الأصلي - {video.profile?.username}</span>
+
+          <span>
+            الصوت الأصلي - {username}
+          </span>
         </div>
       </div>
 
-      {/* أزرار التفاعل على يمين الفيديو */}
       <div className="absolute right-4 bottom-24 flex flex-col items-center gap-6 z-10 text-white">
-        <button className="flex flex-col items-center gap-1">
+        <button
+          type="button"
+          className="flex flex-col items-center gap-1"
+        >
           <div className="p-3 bg-neutral-900/50 backdrop-blur-md rounded-full border border-white/10">
             <Heart className="w-6 h-6 hover:text-rose-500 transition" />
           </div>
         </button>
 
-        <button 
-          onClick={() => onNavigate(`/post/${video.id}`)}
+        <button
+          type="button"
+          onClick={() =>
+            onNavigate(
+              `/post/${video.id}`
+            )
+          }
           className="flex flex-col items-center gap-1"
         >
           <div className="p-3 bg-neutral-900/50 backdrop-blur-md rounded-full border border-white/10">
@@ -139,8 +252,11 @@ function ReelItem({ video, onNavigate }: { video: VideoPost; onNavigate: any }) 
           </div>
         </button>
 
-        <button 
-          onClick={() => navigator.share?.({ title: 'Reels', url: window.location.href })}
+        <button
+          type="button"
+          onClick={() =>
+            void handleShare()
+          }
           className="flex flex-col items-center gap-1"
         >
           <div className="p-3 bg-neutral-900/50 backdrop-blur-md rounded-full border border-white/10">
@@ -151,4 +267,3 @@ function ReelItem({ video, onNavigate }: { video: VideoPost; onNavigate: any }) 
     </div>
   );
 }
-
