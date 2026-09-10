@@ -5,14 +5,18 @@ export interface Profile {
   avatar_url: string | null;
   bio: string | null;
   created_at: string;
+  display_id: string;
+  close_friends?: unknown;
 }
 
 export interface Post {
   id: string;
   user_id: string;
-  image_url: string;
+  image_url: string | null;
   caption: string | null;
+  likes_count: number;
   created_at: string;
+  video_url: string | null;
 }
 
 export interface Like {
