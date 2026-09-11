@@ -1,11 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import {
-  Heart, MessageCircle, Share2, Loader2, Send,
-  ImagePlus, X, PlusCircle, Bell, Plus, Video
+  Heart,
+  MessageCircle,
+  Share2,
+  Loader2,
+  Send,
+  PlusCircle,
+  Bell,
+  Plus,
 } from 'lucide-react';
+import { CreatePostModal } from '@/components/CreatePostModal';
 
 interface Post {
   id: string;
@@ -14,10 +21,17 @@ interface Post {
   video_url: string | null;
   caption: string | null;
   created_at: string;
+
+  post_type?: 'text' | 'image' | 'video' | 'reel';
+  background_style?: string | null;
+  media_urls?: string[];
+  video_type?: 'video' | 'reel' | null;
+
   profiles?: {
     username: string;
     avatar_url: string | null;
   };
+
   likes_count: number;
   user_has_liked: boolean;
 }
@@ -44,20 +58,17 @@ export default function FeedPage() {
   const navigate = useNavigate();
 
   const [posts, setPosts] = useState<Post[]>([]);
-  const [currentUserProfile, setCurrentUserProfile] = useState<UserProfile | null>(null);
+  const [currentUserProfile, setCurrentUserProfile] =
+    useState<UserProfile | null>(null);
+
   const [activeUsers, setActiveUsers] = useState<UserProfile[]>([]);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
   const [loading, setLoading] = useState(true);
 
-  // Modal State
+  // Create Post Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [caption, setCaption] = useState('');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [isVideo, setIsVideo] = useState(false);
-  const [uploading, setUploading] = useState(false);
 
-  // Comments State
+  // Comments
   const [activePostId, setActivePostId] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
@@ -88,11 +99,13 @@ export default function FeedPage() {
         .select('id, username, avatar_url');
 
       if (profilesData) {
-        setActiveUsers(profilesData.filter((p) => p.id !== user?.id));
+        setActiveUsers(
+          profilesData.filter((profile) => profile.id !== user?.id)
+        );
       }
 
       const profilesMap = new Map(
-        profilesData?.map((p) => [p.id, p])
+        profilesData?.map((profile) => [profile.id, profile])
       );
 
       const { data: postsData, error: postsError } = await supabase
@@ -118,18 +131,33 @@ export default function FeedPage() {
 
         const foundProfile = profilesMap.get(post.user_id);
 
+        let mediaUrls: string[] = [];
+
+        if (Array.isArray(post.media_urls)) {
+          mediaUrls = post.media_urls;
+        }
+
         return {
           id: post.id,
           user_id: post.user_id,
+
           image_url: post.image_url ?? null,
           video_url: post.video_url ?? null,
           caption: post.caption ?? null,
           created_at: post.created_at,
+
+          post_type: post.post_type ?? 'image',
+          background_style: post.background_style ?? null,
+          media_urls: mediaUrls,
+          video_type: post.video_type ?? null,
+
           profiles: {
             username: foundProfile?.username || 'مستخدم',
             avatar_url: foundProfile?.avatar_url ?? null,
           },
+
           likes_count: postLikes.length,
+
           user_has_liked: postLikes.some(
             (like) => like.user_id === user?.id
           ),
@@ -137,30 +165,27 @@ export default function FeedPage() {
       });
 
       setPosts(formatted);
-    } catch (err) {
-      console.error('Error loading feed:', err);
+    } catch (error) {
+      console.error('Error loading feed:', error);
     } finally {
       setLoading(false);
     }
   }
 
-  // Toggle Like
   async function handleToggleLike(post: Post) {
     if (!user) return;
 
     setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id === post.id) {
-          return {
-            ...p,
-            user_has_liked: !p.user_has_liked,
-            likes_count: p.user_has_liked
-              ? p.likes_count - 1
-              : p.likes_count + 1,
-          };
-        }
+      prev.map((item) => {
+        if (item.id !== post.id) return item;
 
-        return p;
+        return {
+          ...item,
+          user_has_liked: !item.user_has_liked,
+          likes_count: item.user_has_liked
+            ? item.likes_count - 1
+            : item.likes_count + 1,
+        };
       })
     );
 
@@ -175,41 +200,45 @@ export default function FeedPage() {
         console.error('Error removing like:', error);
 
         setPosts((prev) =>
-          prev.map((p) =>
-            p.id === post.id
+          prev.map((item) =>
+            item.id === post.id
               ? {
-                  ...p,
+                  ...item,
                   user_has_liked: true,
-                  likes_count: p.likes_count + 1,
+                  likes_count: item.likes_count + 1,
                 }
-              : p
+              : item
           )
         );
       }
     } else {
       const { error } = await supabase
         .from('likes')
-        .insert([{ post_id: post.id, user_id: user.id }]);
+        .insert([
+          {
+            post_id: post.id,
+            user_id: user.id,
+          },
+        ]);
 
       if (error) {
         console.error('Error adding like:', error);
 
         setPosts((prev) =>
-          prev.map((p) =>
-            p.id === post.id
+          prev.map((item) =>
+            item.id === post.id
               ? {
-                  ...p,
+                  ...item,
                   user_has_liked: false,
-                  likes_count: Math.max(0, p.likes_count - 1),
+                  likes_count: Math.max(0, item.likes_count - 1),
                 }
-              : p
+              : item
           )
         );
       }
     }
   }
 
-  // Share Post
   function handleShare(postId: string) {
     const url = `${window.location.origin}/#post-${postId}`;
 
@@ -218,13 +247,12 @@ export default function FeedPage() {
       .then(() => {
         alert('تم نسخ رابط المنشور بنجاح!');
       })
-      .catch((err) => {
-        console.error('Error copying post URL:', err);
+      .catch((error) => {
+        console.error('Error copying post URL:', error);
         alert('تعذر نسخ رابط المنشور.');
       });
   }
 
-  // Load Comments
   async function toggleComments(postId: string) {
     if (activePostId === postId) {
       setActivePostId(null);
@@ -235,26 +263,23 @@ export default function FeedPage() {
     setLoadingComments(true);
 
     try {
-      const { data: commentsData, error } = await supabase
+      const { data, error } = await supabase
         .from('comments')
         .select('*, profiles(username, avatar_url)')
         .eq('post_id', postId)
         .order('created_at', { ascending: true });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
-      setComments(commentsData || []);
-    } catch (err) {
-      console.error('Error loading comments:', err);
+      setComments(data || []);
+    } catch (error) {
+      console.error('Error loading comments:', error);
       setComments([]);
     } finally {
       setLoadingComments(false);
     }
   }
 
-  // Add Comment
   async function handleAddComment(postId: string) {
     if (!newComment.trim() || !user) return;
 
@@ -278,106 +303,113 @@ export default function FeedPage() {
     }
   }
 
-  // اختيار ملف (صورة أو فيديو)
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!e.target.files || e.target.files.length === 0) return;
+  function getTextBackground(style?: string | null) {
+    switch (style) {
+      case 'sunset':
+        return 'bg-gradient-to-br from-orange-500 via-rose-500 to-purple-600';
 
-    const file = e.target.files[0];
+      case 'purple':
+        return 'bg-gradient-to-br from-purple-600 via-fuchsia-500 to-pink-500';
 
-    setSelectedFile(file);
-    setIsVideo(file.type.startsWith('video/'));
-    setPreviewUrl(URL.createObjectURL(file));
+      case 'ocean':
+        return 'bg-gradient-to-br from-cyan-500 via-blue-600 to-indigo-700';
+
+      case 'fire':
+        return 'bg-gradient-to-br from-red-600 via-orange-500 to-yellow-500';
+
+      case 'green':
+        return 'bg-gradient-to-br from-emerald-500 via-green-600 to-teal-700';
+
+      case 'dark':
+        return 'bg-gradient-to-br from-neutral-800 via-neutral-900 to-black';
+
+      default:
+        return 'bg-gradient-to-br from-purple-600 to-rose-500';
+    }
   }
 
-  // إنشاء منشور أو ريلز جديد
-  async function handleCreatePost(e: React.FormEvent) {
-    e.preventDefault();
+  function renderPostMedia(post: Post) {
+    const mediaUrls =
+      post.media_urls && post.media_urls.length > 0
+        ? post.media_urls
+        : post.image_url
+        ? [post.image_url]
+        : [];
 
-    if (!caption.trim() && !selectedFile) return;
-
-    if (!user) {
-      alert('خاصك تكون مسجل الدخول باش تنشر.');
-      return;
+    // TEXT
+    if (post.post_type === 'text') {
+      return (
+        <div
+          className={`min-h-[260px] flex items-center justify-center p-8 text-center ${getTextBackground(
+            post.background_style
+          )}`}
+        >
+          <p className="text-white text-xl font-bold leading-relaxed whitespace-pre-wrap">
+            {post.caption}
+          </p>
+        </div>
+      );
     }
 
-    setUploading(true);
-
-    let finalImageUrl: string | null = null;
-    let finalVideoUrl: string | null = null;
-
-    try {
-      if (selectedFile) {
-        const fileExt =
-          selectedFile.name.split('.').pop()?.toLowerCase() || 'bin';
-
-        const fileName = `${Date.now()}.${fileExt}`;
-
-        // Storage RLS كيتوقع user.id يكون هو المجلد الأول
-        const filePath = `${user.id}/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('posts')
-          .upload(filePath, selectedFile);
-
-        if (uploadError) {
-          throw uploadError;
-        }
-
-        const { data: publicUrlData } = supabase.storage
-          .from('posts')
-          .getPublicUrl(filePath);
-
-        if (isVideo) {
-          finalVideoUrl = publicUrlData.publicUrl;
-        } else {
-          finalImageUrl = publicUrlData.publicUrl;
-        }
-      }
-
-      const { error: insertError } = await supabase
-        .from('posts')
-        .insert([
-          {
-            user_id: user.id,
-            caption: caption.trim() || null,
-            image_url: finalImageUrl,
-            video_url: finalVideoUrl,
-          },
-        ]);
-
-      if (insertError) {
-        throw insertError;
-      }
-
-      setCaption('');
-      setSelectedFile(null);
-      setPreviewUrl(null);
-      setIsVideo(false);
-      setIsModalOpen(false);
-
-      await loadUserProfileAndPosts();
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'خطأ غير معروف';
-
-      console.error('Error creating post:', err);
-      alert('خطأ أثناء النشر: ' + message);
-    } finally {
-      setUploading(false);
+    // MULTIPLE IMAGES
+    if (mediaUrls.length > 1) {
+      return (
+        <div className="grid grid-cols-2 gap-1 bg-black">
+          {mediaUrls.map((url, index) => (
+            <img
+              key={`${url}-${index}`}
+              src={url}
+              alt={`Post ${index + 1}`}
+              className="w-full aspect-square object-cover"
+            />
+          ))}
+        </div>
+      );
     }
+
+    // SINGLE IMAGE
+    if (mediaUrls.length === 1) {
+      return (
+        <div className="w-full bg-neutral-950">
+          <img
+            src={mediaUrls[0]}
+            alt="Post"
+            className="w-full max-h-[500px] object-contain"
+          />
+        </div>
+      );
+    }
+
+    // VIDEO / REEL
+    if (post.video_url) {
+      return (
+        <div className="w-full bg-black">
+          <video
+            src={post.video_url}
+            controls
+            playsInline
+            className="w-full max-h-[600px] object-contain"
+          />
+        </div>
+      );
+    }
+
+    return null;
   }
 
   return (
     <div className="max-w-md mx-auto px-4 py-4 pb-28 text-white min-h-screen bg-black">
 
-      {/* 1. القسم العلوي (Header) */}
+      {/* HEADER */}
       <header className="flex items-center justify-between py-3 mb-4 border-b border-white/10">
         <div className="flex items-center gap-3">
+
           <div
             onClick={() => navigate(`/profile/${user?.id}`)}
-            className="relative cursor-pointer group"
+            className="relative cursor-pointer"
           >
             <div className="w-11 h-11 rounded-full p-[2px] bg-gradient-to-tr from-rose-500 via-purple-500 to-amber-500">
+
               {currentUserProfile?.avatar_url ? (
                 <img
                   src={currentUserProfile.avatar_url}
@@ -385,18 +417,21 @@ export default function FeedPage() {
                   className="w-full h-full object-cover rounded-full border border-black"
                 />
               ) : (
-                <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-sm text-white">
-                  {currentUserProfile?.username?.charAt(0).toUpperCase() || 'U'}
+                <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-sm">
+                  {currentUserProfile?.username
+                    ?.charAt(0)
+                    .toUpperCase() || 'U'}
                 </div>
               )}
+
             </div>
 
             <span
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={(event) => {
+                event.stopPropagation();
                 setIsModalOpen(true);
               }}
-              className="absolute -bottom-1 -left-1 bg-rose-500 text-white rounded-full p-0.5 border-2 border-black hover:scale-110 transition-transform"
+              className="absolute -bottom-1 -left-1 bg-rose-500 text-white rounded-full p-0.5 border-2 border-black"
             >
               <Plus className="w-3 h-3 stroke-[3]" />
             </span>
@@ -404,7 +439,7 @@ export default function FeedPage() {
 
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold tracking-wide">
+              <span className="text-sm font-bold">
                 {currentUserProfile?.username || 'مستخدم'}
               </span>
               <span className="text-xs">🇲🇦</span>
@@ -416,30 +451,30 @@ export default function FeedPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              setHasUnreadNotifications(false);
-              navigate('/notifications');
-            }}
-            className="relative p-2.5 rounded-full bg-neutral-900 border border-white/10 hover:border-white/20 transition-all text-neutral-200"
-          >
-            <Bell className="w-5 h-5" />
+        <button
+          onClick={() => {
+            setHasUnreadNotifications(false);
+            navigate('/notifications');
+          }}
+          className="relative p-2.5 rounded-full bg-neutral-900 border border-white/10"
+        >
+          <Bell className="w-5 h-5" />
 
-            {hasUnreadNotifications && (
-              <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-black animate-pulse" />
-            )}
-          </button>
-        </div>
+          {hasUnreadNotifications && (
+            <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-black animate-pulse" />
+          )}
+        </button>
       </header>
 
-      {/* 2. شريط القصص (Stories Tray) */}
+      {/* STORIES */}
       <div className="flex items-center gap-3 overflow-x-auto pb-4 mb-4 scrollbar-hide border-b border-white/5">
+
         <div
           onClick={() => setIsModalOpen(true)}
           className="flex flex-col items-center gap-1 cursor-pointer shrink-0"
         >
           <div className="relative w-14 h-14 rounded-full p-[2px] bg-neutral-800 border border-dashed border-rose-500/50 flex items-center justify-center">
+
             {currentUserProfile?.avatar_url ? (
               <img
                 src={currentUserProfile.avatar_url}
@@ -457,7 +492,7 @@ export default function FeedPage() {
             </div>
           </div>
 
-          <span className="text-[10px] text-neutral-400 font-medium">
+          <span className="text-[10px] text-neutral-400">
             قصتك
           </span>
         </div>
@@ -469,6 +504,7 @@ export default function FeedPage() {
             className="flex flex-col items-center gap-1 cursor-pointer shrink-0"
           >
             <div className="w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600">
+
               {profile.avatar_url ? (
                 <img
                   src={profile.avatar_url}
@@ -476,10 +512,11 @@ export default function FeedPage() {
                   className="w-full h-full object-cover rounded-full border border-black"
                 />
               ) : (
-                <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-xs text-white border border-black">
+                <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-xs border border-black">
                   {profile.username?.charAt(0).toUpperCase()}
                 </div>
               )}
+
             </div>
 
             <span className="text-[10px] text-neutral-300 font-medium max-w-[60px] truncate">
@@ -489,10 +526,10 @@ export default function FeedPage() {
         ))}
       </div>
 
-      {/* 3. زر إطلاق نافذة النشر */}
+      {/* CREATE POST BUTTON */}
       <button
         onClick={() => setIsModalOpen(true)}
-        className="w-full mb-6 py-3 px-4 bg-neutral-900 border border-white/10 hover:border-rose-500/50 rounded-2xl flex items-center justify-between text-neutral-400 text-xs shadow-lg transition-all"
+        className="w-full mb-6 py-3 px-4 bg-neutral-900 border border-white/10 hover:border-rose-500/50 rounded-2xl flex items-center justify-between text-neutral-400 text-xs shadow-lg"
       >
         <span className="flex items-center gap-2">
           <PlusCircle className="w-5 h-5 text-rose-500" />
@@ -504,121 +541,40 @@ export default function FeedPage() {
         </span>
       </button>
 
-      {/* Modal - نافذة النشر الانبثاقية */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-neutral-900 border border-white/10 rounded-2xl w-full max-w-md p-4 relative shadow-2xl animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-3">
-              <h3 className="text-sm font-bold text-white">
-                إنشاء منشور / ريلز جديد
-              </h3>
+      {/* NEW CREATE POST MODAL */}
+      <CreatePostModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onPostCreated={loadUserProfileAndPosts}
+      />
 
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="text-neutral-400 hover:text-white p-1 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreatePost} className="space-y-3">
-              <textarea
-                value={caption}
-                onChange={(e) => setCaption(e.target.value)}
-                placeholder="اكتب موضوع المنشور أو وصف الفيديو..."
-                className="w-full bg-neutral-950 border border-white/10 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-rose-500 resize-none h-24"
-              />
-
-              {previewUrl && (
-                <div className="relative w-full h-48 bg-neutral-950 rounded-xl overflow-hidden border border-white/10">
-                  {isVideo ? (
-                    <video
-                      src={previewUrl}
-                      controls
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <img
-                      src={previewUrl}
-                      alt="Preview"
-                      className="w-full h-full object-cover"
-                    />
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedFile(null);
-                      setPreviewUrl(null);
-                      setIsVideo(false);
-                    }}
-                    className="absolute top-2 right-2 bg-black/80 p-1.5 rounded-full text-white z-10"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between gap-2 pt-2">
-                <label className="flex items-center gap-2 cursor-pointer bg-neutral-950 border border-white/10 hover:border-white/20 rounded-xl px-3 py-2 text-xs text-neutral-300">
-                  <Video className="w-4 h-4 text-rose-500" />
-                  <ImagePlus className="w-4 h-4 text-amber-500" />
-
-                  <span>
-                    {selectedFile
-                      ? 'تغيير الملف'
-                      : 'صورة أو فيديو (Reels)'}
-                  </span>
-
-                  <input
-                    type="file"
-                    accept="image/*,video/*"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                </label>
-
-                <button
-                  type="submit"
-                  disabled={
-                    uploading ||
-                    (!caption.trim() && !selectedFile)
-                  }
-                  className="flex items-center gap-1.5 px-5 py-2 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl text-xs font-semibold"
-                >
-                  {uploading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
-
-                  نشر الآن
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 4. قائمة المنشورات (Feed List) */}
+      {/* FEED */}
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
         </div>
+      ) : posts.length === 0 ? (
+        <div className="text-center py-12 text-neutral-500">
+          ما كاين حتى منشور دابا.
+        </div>
       ) : (
         <div className="space-y-4">
+
           {posts.map((post) => (
             <div
               key={post.id}
               id={`post-${post.id}`}
               className="bg-neutral-900 border border-white/10 rounded-2xl overflow-hidden"
             >
+
+              {/* POST HEADER */}
               <div className="p-3 flex items-center justify-between border-b border-white/5">
                 <div
                   onClick={() => navigate(`/profile/${post.user_id}`)}
-                  className="flex items-center gap-3 cursor-pointer group"
+                  className="flex items-center gap-3 cursor-pointer"
                 >
                   <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-rose-500 to-purple-600 p-[1.5px]">
+
                     {post.profiles?.avatar_url ? (
                       <img
                         src={post.profiles.avatar_url}
@@ -626,56 +582,43 @@ export default function FeedPage() {
                         className="w-full h-full object-cover rounded-full border border-black"
                       />
                     ) : (
-                      <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-xs text-white">
+                      <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-xs">
                         {post.profiles?.username
                           ?.charAt(0)
                           .toUpperCase()}
                       </div>
                     )}
+
                   </div>
 
                   <div>
-                    <h3 className="text-xs font-bold group-hover:text-rose-400 transition-colors">
-                      {post.profiles?.username}
+                    <h3 className="text-xs font-bold">
+                      {post.profiles?.username || 'مستخدم'}
                     </h3>
 
                     <p className="text-[10px] text-neutral-500">
-                      {new Date(post.created_at).toLocaleDateString('ar-EG')}
+                      {new Date(post.created_at).toLocaleDateString('ar-MA')}
                     </p>
                   </div>
                 </div>
               </div>
 
-              {post.caption && (
-                <p className="p-3 text-xs text-neutral-200 leading-relaxed">
+              {/* CAPTION FOR IMAGE / VIDEO */}
+              {post.caption && post.post_type !== 'text' && (
+                <p className="p-3 text-xs text-neutral-200 leading-relaxed whitespace-pre-wrap">
                   {post.caption}
                 </p>
               )}
 
-              {post.image_url && (
-                <div className="w-full bg-neutral-950">
-                  <img
-                    src={post.image_url}
-                    alt="Post"
-                    className="w-full max-h-96 object-contain"
-                  />
-                </div>
-              )}
+              {/* MEDIA */}
+              {renderPostMedia(post)}
 
-              {post.video_url && (
-                <div className="w-full bg-neutral-950">
-                  <video
-                    src={post.video_url}
-                    controls
-                    className="w-full max-h-96 object-contain"
-                  />
-                </div>
-              )}
-
+              {/* ACTIONS */}
               <div className="p-3 flex items-center justify-between border-t border-white/5 text-neutral-400 text-xs">
+
                 <button
                   onClick={() => handleToggleLike(post)}
-                  className={`flex items-center gap-1.5 transition-colors ${
+                  className={`flex items-center gap-1.5 ${
                     post.user_has_liked
                       ? 'text-rose-500 font-bold'
                       : 'hover:text-white'
@@ -692,7 +635,7 @@ export default function FeedPage() {
 
                 <button
                   onClick={() => toggleComments(post.id)}
-                  className="flex items-center gap-1.5 hover:text-white transition-colors"
+                  className="flex items-center gap-1.5 hover:text-white"
                 >
                   <MessageCircle className="w-4 h-4" />
                   <span>تعليق</span>
@@ -700,21 +643,25 @@ export default function FeedPage() {
 
                 <button
                   onClick={() => handleShare(post.id)}
-                  className="flex items-center gap-1.5 hover:text-white transition-colors"
+                  className="flex items-center gap-1.5 hover:text-white"
                 >
                   <Share2 className="w-4 h-4" />
                   <span>مشاركة</span>
                 </button>
+
               </div>
 
+              {/* COMMENTS */}
               {activePostId === post.id && (
                 <div className="bg-neutral-950 p-3 border-t border-white/10 space-y-3">
+
                   {loadingComments ? (
                     <div className="flex justify-center py-2">
                       <Loader2 className="w-4 h-4 animate-spin text-rose-500" />
                     </div>
                   ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+
                       {comments.length === 0 ? (
                         <p className="text-[11px] text-neutral-500 text-center py-2">
                           لا توجد تعليقات بعد. كن أول من يعلق!
@@ -729,7 +676,7 @@ export default function FeedPage() {
                               onClick={() =>
                                 navigate(`/profile/${comment.user_id}`)
                               }
-                              className="w-6 h-6 rounded-full bg-neutral-800 shrink-0 cursor-pointer overflow-hidden mt-0.5"
+                              className="w-6 h-6 rounded-full bg-neutral-800 shrink-0 cursor-pointer overflow-hidden"
                             >
                               {comment.profiles?.avatar_url ? (
                                 <img
@@ -749,7 +696,7 @@ export default function FeedPage() {
                                 onClick={() =>
                                   navigate(`/profile/${comment.user_id}`)
                                 }
-                                className="font-bold text-rose-400 block text-[11px] cursor-pointer hover:underline"
+                                className="font-bold text-rose-400 block text-[11px] cursor-pointer"
                               >
                                 {comment.profiles?.username || 'مستخدم'}
                               </span>
@@ -761,6 +708,7 @@ export default function FeedPage() {
                           </div>
                         ))
                       )}
+
                     </div>
                   )}
 
@@ -780,12 +728,15 @@ export default function FeedPage() {
                       <Send className="w-3.5 h-3.5" />
                     </button>
                   </div>
+
                 </div>
               )}
+
             </div>
           ))}
+
         </div>
       )}
     </div>
   );
-                              }
+                  }
