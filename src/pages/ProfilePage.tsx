@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+
 import {
   UserPlus,
   UserCheck,
@@ -12,7 +13,6 @@ import {
   X,
   Check,
   Grid,
-  Image as ImageIcon,
   LogOut,
 } from 'lucide-react';
 
@@ -42,15 +42,26 @@ export default function ProfilePage() {
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [userPosts, setUserPosts] = useState<PostData[]>([]);
+
   const [loading, setLoading] = useState(true);
+
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
+
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+
   const [isEditing, setIsEditing] = useState(false);
+
   const [fullName, setFullName] = useState('');
   const [bio, setBio] = useState('');
+
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  // ============================================
+  // تحميل معلومات البروفايل
+  // ============================================
 
   const loadProfileData = useCallback(async () => {
     if (!targetUserId) {
@@ -61,6 +72,7 @@ export default function ProfilePage() {
     setLoading(true);
 
     try {
+      // جلب البروفايل
       const { data: prof, error: profErr } = await supabase
         .from('profiles')
         .select('*')
@@ -77,6 +89,7 @@ export default function ProfilePage() {
       setFullName(profileData.full_name || '');
       setBio(profileData.bio || '');
 
+      // جلب منشورات المستخدم
       const { data: posts, error: postsError } = await supabase
         .from('posts')
         .select('id, image_url, caption, created_at')
@@ -89,9 +102,16 @@ export default function ProfilePage() {
 
       setUserPosts((posts as PostData[]) || []);
 
-      const { count: followersCountResult, error: followersError } = await supabase
+      // عدد المتابعين
+      const {
+        count: followersCountResult,
+        error: followersError,
+      } = await supabase
         .from('follows')
-        .select('*', { count: 'exact', head: true })
+        .select('*', {
+          count: 'exact',
+          head: true,
+        })
         .eq('following_id', targetUserId);
 
       if (followersError) {
@@ -100,9 +120,16 @@ export default function ProfilePage() {
 
       setFollowersCount(followersCountResult || 0);
 
-      const { count: followingCountResult, error: followingError } = await supabase
+      // عدد الذين يتابعهم المستخدم
+      const {
+        count: followingCountResult,
+        error: followingError,
+      } = await supabase
         .from('follows')
-        .select('*', { count: 'exact', head: true })
+        .select('*', {
+          count: 'exact',
+          head: true,
+        })
         .eq('follower_id', targetUserId);
 
       if (followingError) {
@@ -111,8 +138,12 @@ export default function ProfilePage() {
 
       setFollowingCount(followingCountResult || 0);
 
+      // واش المستخدم الحالي متابع هاد الشخص؟
       if (user && !isOwnProfile) {
-        const { data: followingData, error: followingCheckError } = await supabase
+        const {
+          data: followingData,
+          error: followingCheckError,
+        } = await supabase
           .from('follows')
           .select('id')
           .eq('follower_id', user.id)
@@ -127,7 +158,7 @@ export default function ProfilePage() {
       } else {
         setIsFollowing(false);
       }
-    } catch (error: unknown) {
+    } catch (error) {
       console.error('Error loading profile:', error);
     } finally {
       setLoading(false);
@@ -138,8 +169,46 @@ export default function ProfilePage() {
     void loadProfileData();
   }, [loadProfileData]);
 
+  // ============================================
+  // تسجيل الخروج
+  // ============================================
+
+  async function handleLogout() {
+    if (loggingOut) {
+      return;
+    }
+
+    setLoggingOut(true);
+
+    try {
+      await signOut();
+
+      // نرجعو مباشرة لصفحة Login
+      navigate('/login', {
+        replace: true,
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+
+      alert(
+        'وقع مشكل أثناء تسجيل الخروج. حاول مرة أخرى.'
+      );
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
+  // ============================================
+  // Follow / Unfollow
+  // ============================================
+
   async function handleToggleFollow() {
-    if (!user || !targetUserId || isOwnProfile || followLoading) {
+    if (
+      !user ||
+      !targetUserId ||
+      isOwnProfile ||
+      followLoading
+    ) {
       return;
     }
 
@@ -158,7 +227,10 @@ export default function ProfilePage() {
         }
 
         setIsFollowing(false);
-        setFollowersCount((previousCount) => Math.max(0, previousCount - 1));
+
+        setFollowersCount((previousCount) =>
+          Math.max(0, previousCount - 1)
+        );
       } else {
         const { error } = await supabase
           .from('follows')
@@ -172,16 +244,25 @@ export default function ProfilePage() {
         }
 
         setIsFollowing(true);
-        setFollowersCount((previousCount) => previousCount + 1);
+
+        setFollowersCount(
+          (previousCount) => previousCount + 1
+        );
       }
-    } catch (error: unknown) {
+    } catch (error) {
       console.error('Error toggling follow:', error);
     } finally {
       setFollowLoading(false);
     }
   }
 
-  async function handleAvatarUpload(event: React.ChangeEvent<HTMLInputElement>) {
+  // ============================================
+  // تغيير صورة البروفايل
+  // ============================================
+
+  async function handleAvatarUpload(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
     const file = event.target.files?.[0];
 
     if (!file || !user) {
@@ -191,30 +272,39 @@ export default function ProfilePage() {
     setUploadingAvatar(true);
 
     try {
-      const fileExtension = file.name.split('.').pop() || 'jpg';
-      const fileName = `${user.id}_avatar.${fileExtension}`;
+      const fileExtension =
+        file.name.split('.').pop() || 'jpg';
 
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: true,
-        });
+      const fileName =
+        `${user.id}_avatar.${fileExtension}`;
+
+      const { error: uploadError } =
+        await supabase.storage
+          .from('avatars')
+          .upload(fileName, file, {
+            cacheControl: '3600',
+            upsert: true,
+          });
 
       if (uploadError) {
         throw uploadError;
       }
 
-      const { data: publicUrlData } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(fileName);
+      const { data: publicUrlData } =
+        supabase.storage
+          .from('avatars')
+          .getPublicUrl(fileName);
 
-      const avatarUrl = publicUrlData.publicUrl;
+      const avatarUrl =
+        publicUrlData.publicUrl;
 
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ avatar_url: avatarUrl })
-        .eq('id', user.id);
+      const { error: updateError } =
+        await supabase
+          .from('profiles')
+          .update({
+            avatar_url: avatarUrl,
+          })
+          .eq('id', user.id);
 
       if (updateError) {
         throw updateError;
@@ -222,18 +312,29 @@ export default function ProfilePage() {
 
       setProfile((previousProfile) =>
         previousProfile
-          ? { ...previousProfile, avatar_url: avatarUrl }
+          ? {
+              ...previousProfile,
+              avatar_url: avatarUrl,
+            }
           : null
       );
-    } catch (error: unknown) {
+    } catch (error) {
       const message =
-        error instanceof Error ? error.message : 'حدث خطأ غير معروف';
+        error instanceof Error
+          ? error.message
+          : 'حدث خطأ غير معروف';
 
-      alert('خطأ في تحميل الصورة: ' + message);
+      alert(
+        'خطأ في تحميل الصورة: ' + message
+      );
     } finally {
       setUploadingAvatar(false);
     }
   }
+
+  // ============================================
+  // تعديل البروفايل
+  // ============================================
 
   async function handleUpdateProfile() {
     if (!user) {
@@ -241,16 +342,23 @@ export default function ProfilePage() {
     }
 
     try {
-      const newFullName = fullName.trim();
-      const newBio = bio.trim();
+      const newFullName =
+        fullName.trim();
 
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: newFullName || null,
-          bio: newBio || null,
-        })
-        .eq('id', user.id);
+      const newBio =
+        bio.trim();
+
+      const { error } =
+        await supabase
+          .from('profiles')
+          .update({
+            full_name:
+              newFullName || null,
+
+            bio:
+              newBio || null,
+          })
+          .eq('id', user.id);
 
       if (error) {
         throw error;
@@ -260,30 +368,49 @@ export default function ProfilePage() {
         previousProfile
           ? {
               ...previousProfile,
-              full_name: newFullName || null,
-              bio: newBio || null,
+
+              full_name:
+                newFullName || null,
+
+              bio:
+                newBio || null,
             }
           : null
       );
 
       setFullName(newFullName);
       setBio(newBio);
-      setIsEditing(false);
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'حدث خطأ غير معروف';
 
-      alert('خطأ أثناء التحديث: ' + message);
+      setIsEditing(false);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'حدث خطأ غير معروف';
+
+      alert(
+        'خطأ أثناء التحديث: ' + message
+      );
     }
   }
+
+  // ============================================
+  // Loading
+  // ============================================
 
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
+        <Loader2
+          className="w-8 h-8 animate-spin text-rose-500"
+        />
       </div>
     );
   }
+
+  // ============================================
+  // Profile غير موجود
+  // ============================================
 
   if (!profile) {
     return (
@@ -293,29 +420,167 @@ export default function ProfilePage() {
     );
   }
 
+  // ============================================
+  // الصفحة
+  // ============================================
+
   return (
-    <div className="max-w-xl mx-auto px-4 py-6 pb-28 text-white space-y-6">
-      <div className="bg-neutral-900 border border-white/10 rounded-2xl p-5 relative shadow-xl">
+    <div
+      className="
+        max-w-xl
+        mx-auto
+        px-4
+        py-6
+        pb-28
+        text-white
+        space-y-6
+      "
+    >
+
+      {/* ======================================
+          Header
+      ====================================== */}
+
+      <div
+        className="
+          flex
+          items-center
+          justify-between
+          mb-2
+        "
+      >
+        <h1 className="text-lg font-bold">
+          الملف الشخصي
+        </h1>
+
+        {isOwnProfile && (
+          <button
+            onClick={() => void handleLogout()}
+            disabled={loggingOut}
+            className="
+              flex
+              items-center
+              gap-2
+              px-4
+              py-2
+              rounded-xl
+              bg-red-500/10
+              border
+              border-red-500/30
+              text-red-400
+              hover:bg-red-500/20
+              transition-colors
+              disabled:opacity-50
+            "
+          >
+            {loggingOut ? (
+              <Loader2
+                className="w-4 h-4 animate-spin"
+              />
+            ) : (
+              <LogOut
+                className="w-4 h-4"
+              />
+            )}
+
+            <span className="text-xs font-bold">
+              {loggingOut
+                ? 'جاري الخروج...'
+                : 'تسجيل الخروج'}
+            </span>
+          </button>
+        )}
+      </div>
+
+      {/* ======================================
+          Profile Card
+      ====================================== */}
+
+      <div
+        className="
+          bg-neutral-900
+          border
+          border-white/10
+          rounded-2xl
+          p-5
+          shadow-xl
+        "
+      >
+
+        {/* معلومات المستخدم */}
+
         <div className="flex items-center gap-4">
-          <div className="relative group">
-            <div className="w-20 h-20 rounded-full bg-rose-500/20 border-2 border-rose-500/50 flex items-center justify-center font-bold text-2xl overflow-hidden">
+
+          {/* Avatar */}
+
+          <div className="relative">
+
+            <div
+              className="
+                w-20
+                h-20
+                rounded-full
+                bg-rose-500/20
+                border-2
+                border-rose-500/50
+                flex
+                items-center
+                justify-center
+                font-bold
+                text-2xl
+                overflow-hidden
+              "
+            >
               {profile.avatar_url ? (
                 <img
                   src={profile.avatar_url}
                   alt="Avatar"
-                  className="w-full h-full object-cover"
+                  className="
+                    w-full
+                    h-full
+                    object-cover
+                  "
                 />
               ) : (
-                profile.username.charAt(0).toUpperCase()
+                profile.username
+                  .charAt(0)
+                  .toUpperCase()
               )}
             </div>
 
+            {/* تغيير الصورة */}
+
             {isOwnProfile && (
-              <label className="absolute bottom-0 right-0 bg-rose-500 hover:bg-rose-600 p-1.5 rounded-full cursor-pointer shadow-lg transition-transform active:scale-95">
+              <label
+                className="
+                  absolute
+                  bottom-0
+                  right-0
+                  bg-rose-500
+                  hover:bg-rose-600
+                  p-1.5
+                  rounded-full
+                  cursor-pointer
+                  shadow-lg
+                "
+              >
                 {uploadingAvatar ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                  <Loader2
+                    className="
+                      w-3.5
+                      h-3.5
+                      animate-spin
+                      text-white
+                    "
+                  />
                 ) : (
-                  <Camera className="w-3.5 h-3.5 text-white" />
+                  <Camera
+                    className="
+                      w-3.5
+                      h-3.5
+                      text-white
+                    "
+                  />
                 )}
 
                 <input
@@ -328,196 +593,581 @@ export default function ProfilePage() {
             )}
           </div>
 
+          {/* الاسم */}
+
           <div className="flex-1 min-w-0">
+
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold text-white truncate">
-                {profile.full_name || profile.username}
+
+              <h1
+                className="
+                  text-base
+                  font-bold
+                  text-white
+                  truncate
+                "
+              >
+                {profile.full_name ||
+                  profile.username}
               </h1>
 
-              <span className="bg-rose-500/10 text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-mono">
+              <span
+                className="
+                  bg-rose-500/10
+                  text-rose-400
+                  text-[10px]
+                  px-2
+                  py-0.5
+                  rounded-full
+                  font-mono
+                "
+              >
                 #{profile.display_id}
               </span>
+
             </div>
 
-            <p className="text-xs text-neutral-400">@{profile.username}</p>
+            <p
+              className="
+                text-xs
+                text-neutral-400
+              "
+            >
+              @{profile.username}
+            </p>
 
             {profile.bio && (
-              <p className="text-xs text-neutral-300 mt-2 leading-relaxed">
+              <p
+                className="
+                  text-xs
+                  text-neutral-300
+                  mt-2
+                  leading-relaxed
+                "
+              >
                 {profile.bio}
               </p>
             )}
+
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 mt-5 pt-4 border-t border-white/10 text-center">
+        {/* ==================================
+            Stats
+        ================================== */}
+
+        <div
+          className="
+            grid
+            grid-cols-3
+            gap-2
+            mt-5
+            pt-4
+            border-t
+            border-white/10
+            text-center
+          "
+        >
+
           <div>
-            <span className="block text-sm font-bold text-white">
+            <span
+              className="
+                block
+                text-sm
+                font-bold
+                text-white
+              "
+            >
               {userPosts.length}
             </span>
-            <span className="text-[10px] text-neutral-400">منشورات</span>
+
+            <span
+              className="
+                text-[10px]
+                text-neutral-400
+              "
+            >
+              منشورات
+            </span>
           </div>
 
           <div>
-            <span className="block text-sm font-bold text-white">
+            <span
+              className="
+                block
+                text-sm
+                font-bold
+                text-white
+              "
+            >
               {followersCount}
             </span>
-            <span className="text-[10px] text-neutral-400">متابِعون</span>
+
+            <span
+              className="
+                text-[10px]
+                text-neutral-400
+              "
+            >
+              متابعون
+            </span>
           </div>
 
           <div>
-            <span className="block text-sm font-bold text-white">
+            <span
+              className="
+                block
+                text-sm
+                font-bold
+                text-white
+              "
+            >
               {followingCount}
             </span>
-            <span className="text-[10px] text-neutral-400">متابَعون</span>
+
+            <span
+              className="
+                text-[10px]
+                text-neutral-400
+              "
+            >
+              متابَعون
+            </span>
           </div>
+
         </div>
 
-        <div className="flex gap-2 mt-4 pt-2">
-          {isOwnProfile ? (
-            <>
-              <button
-                onClick={() => setIsEditing((previous) => !previous)}
-                className="flex-1 bg-neutral-800 hover:bg-neutral-700 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 border border-white/10"
-              >
-                <Edit3 className="w-4 h-4 text-rose-400" />
-                تعديل الملف الشخصي
-              </button>
+        {/* ==================================
+            Buttons
+        ================================== */}
 
-              {/* زر تسجيل الخروج مع أيقونة الباب */}
-              <button
-                onClick={() => signOut()}
-                className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                title="تسجيل الخروج"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>خروج</span>
-              </button>
-            </>
+        <div
+          className="
+            flex
+            gap-2
+            mt-4
+          "
+        >
+
+          {isOwnProfile ? (
+            <button
+              onClick={() =>
+                setIsEditing(
+                  (previous) => !previous
+                )
+              }
+              className="
+                flex-1
+                bg-neutral-800
+                hover:bg-neutral-700
+                py-2.5
+                rounded-xl
+                text-xs
+                font-semibold
+                flex
+                items-center
+                justify-center
+                gap-2
+                border
+                border-white/10
+              "
+            >
+              <Edit3
+                className="
+                  w-4
+                  h-4
+                  text-rose-400
+                "
+              />
+
+              تعديل الملف الشخصي
+            </button>
           ) : (
             <>
               <button
-                onClick={() => void handleToggleFollow()}
+                onClick={() =>
+                  void handleToggleFollow()
+                }
                 disabled={followLoading}
-                className={`flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-                  isFollowing
-                    ? 'bg-neutral-800 text-neutral-300 border border-white/10'
-                    : 'bg-rose-500 hover:bg-rose-600 text-white'
-                }`}
+                className={`
+                  flex-1
+                  py-2.5
+                  rounded-xl
+                  text-xs
+                  font-semibold
+                  flex
+                  items-center
+                  justify-center
+                  gap-2
+                  transition-all
+
+                  ${
+                    isFollowing
+                      ? `
+                        bg-neutral-800
+                        text-neutral-300
+                        border
+                        border-white/10
+                      `
+                      : `
+                        bg-rose-500
+                        hover:bg-rose-600
+                        text-white
+                      `
+                  }
+                `}
               >
+
                 {followLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2
+                    className="
+                      w-4
+                      h-4
+                      animate-spin
+                    "
+                  />
                 ) : isFollowing ? (
                   <>
-                    <UserCheck className="w-4 h-4 text-green-400" />
+                    <UserCheck
+                      className="
+                        w-4
+                        h-4
+                        text-green-400
+                      "
+                    />
+
                     مُتابع
                   </>
                 ) : (
                   <>
-                    <UserPlus className="w-4 h-4" />
+                    <UserPlus
+                      className="w-4 h-4"
+                    />
+
                     متابعة
                   </>
                 )}
+
               </button>
 
               <button
-                onClick={() => navigate(`/chat/${targetUserId}`)}
-                className="bg-neutral-800 hover:bg-neutral-700 px-4 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-white/10 text-neutral-200"
+                onClick={() =>
+                  navigate(
+                    `/chat/${targetUserId}`
+                  )
+                }
+                className="
+                  bg-neutral-800
+                  hover:bg-neutral-700
+                  px-4
+                  py-2.5
+                  rounded-xl
+                  text-xs
+                  font-semibold
+                  flex
+                  items-center
+                  justify-center
+                  gap-1.5
+                  border
+                  border-white/10
+                "
               >
-                <MessageSquare className="w-4 h-4 text-rose-400" />
+                <MessageSquare
+                  className="
+                    w-4
+                    h-4
+                    text-rose-400
+                  "
+                />
+
                 رسالة
               </button>
             </>
           )}
+
         </div>
       </div>
 
-      {isEditing && (
-        <div className="bg-neutral-900 border border-white/10 rounded-2xl p-4 space-y-3">
-          <div className="flex justify-between items-center pb-2 border-b border-white/10">
-            <span className="text-xs font-bold text-white">تعديل المعلومات</span>
+      {/* ======================================
+          Edit Profile
+      ====================================== */}
+
+      {isEditing && isOwnProfile && (
+        <div
+          className="
+            bg-neutral-900
+            border
+            border-white/10
+            rounded-2xl
+            p-4
+            space-y-4
+          "
+        >
+
+          <div
+            className="
+              flex
+              justify-between
+              items-center
+              pb-2
+              border-b
+              border-white/10
+            "
+          >
+            <span
+              className="
+                text-xs
+                font-bold
+                text-white
+              "
+            >
+              تعديل المعلومات
+            </span>
 
             <button
-              onClick={() => setIsEditing(false)}
-              className="text-neutral-400 hover:text-white"
+              onClick={() =>
+                setIsEditing(false)
+              }
+              className="
+                text-neutral-400
+                hover:text-white
+              "
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
+          {/* الاسم */}
+
           <div className="space-y-2">
-            <div>
-              <label className="text-[10px] text-neutral-400 block mb-1">
-                الاسم الكامل
-              </label>
 
-              <input
-                type="text"
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-                className="w-full bg-neutral-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] text-neutral-400 block mb-1">
-                السيرة الذاتية (Bio)
-              </label>
-
-              <textarea
-                value={bio}
-                onChange={(event) => setBio(event.target.value)}
-                className="w-full bg-neutral-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500 resize-none h-20"
-              />
-            </div>
-
-            <button
-              onClick={() => void handleUpdateProfile()}
-              className="w-full bg-rose-500 hover:bg-rose-600 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1 text-white"
+            <label
+              className="
+                text-[10px]
+                text-neutral-400
+                block
+              "
             >
-              <Check className="w-4 h-4" />
-              حفظ التغيرات
-            </button>
+              الاسم الكامل
+            </label>
+
+            <input
+              type="text"
+              value={fullName}
+              onChange={(event) =>
+                setFullName(
+                  event.target.value
+                )
+              }
+              className="
+                w-full
+                bg-neutral-950
+                border
+                border-white/10
+                rounded-xl
+                px-3
+                py-2.5
+                text-xs
+                text-white
+                focus:outline-none
+                focus:border-rose-500
+              "
+            />
+
           </div>
+
+          {/* Bio */}
+
+          <div className="space-y-2">
+
+            <label
+              className="
+                text-[10px]
+                text-neutral-400
+                block
+              "
+            >
+              السيرة الذاتية
+            </label>
+
+            <textarea
+              value={bio}
+              onChange={(event) =>
+                setBio(
+                  event.target.value
+                )
+              }
+              className="
+                w-full
+                bg-neutral-950
+                border
+                border-white/10
+                rounded-xl
+                px-3
+                py-2.5
+                text-xs
+                text-white
+                focus:outline-none
+                focus:border-rose-500
+                resize-none
+                h-24
+              "
+            />
+
+          </div>
+
+          {/* Save */}
+
+          <button
+            onClick={() =>
+              void handleUpdateProfile()
+            }
+            className="
+              w-full
+              bg-rose-500
+              hover:bg-rose-600
+              py-2.5
+              rounded-xl
+              text-xs
+              font-bold
+              flex
+              items-center
+              justify-center
+              gap-2
+              text-white
+            "
+          >
+            <Check className="w-4 h-4" />
+
+            حفظ التغييرات
+          </button>
+
         </div>
       )}
 
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 text-xs font-bold text-neutral-400 border-b border-white/10 pb-2">
-          <Grid className="w-4 h-4 text-rose-500" />
-          <span>المنشورات</span>
+      {/* ======================================
+          Posts
+      ====================================== */}
+
+      <div
+        className="
+          bg-neutral-900
+          border
+          border-white/10
+          rounded-2xl
+          overflow-hidden
+        "
+      >
+
+        <div
+          className="
+            flex
+            items-center
+            gap-2
+            px-4
+            py-3
+            border-b
+            border-white/10
+          "
+        >
+          <Grid
+            className="
+              w-4
+              h-4
+              text-rose-400
+            "
+          />
+
+          <span
+            className="
+              text-xs
+              font-bold
+              text-white
+            "
+          >
+            المنشورات
+          </span>
         </div>
 
         {userPosts.length === 0 ? (
-          <div className="text-center py-10 bg-neutral-900/50 rounded-2xl border border-white/5 space-y-2">
-            <ImageIcon className="w-8 h-8 text-neutral-600 mx-auto" />
+          <div
+            className="
+              py-16
+              text-center
+              text-neutral-500
+            "
+          >
+            <Grid
+              className="
+                w-8
+                h-8
+                mx-auto
+                mb-3
+                opacity-40
+              "
+            />
 
-            <p className="text-xs text-neutral-500">لا توجد منشورات بعد</p>
+            <p className="text-xs">
+              لا توجد منشورات بعد
+            </p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-2">
+          <div
+            className="
+              grid
+              grid-cols-2
+              gap-1
+            "
+          >
             {userPosts.map((post) => (
               <div
                 key={post.id}
-                className="aspect-square bg-neutral-900 rounded-xl overflow-hidden border border-white/10 relative group cursor-pointer"
+                className="
+                  aspect-square
+                  bg-neutral-950
+                  overflow-hidden
+                  relative
+                "
               >
                 {post.image_url ? (
                   <img
                     src={post.image_url}
-                    alt="Post"
+                    alt={
+                      post.caption ||
+                      'Post'
+                    }
+                    className="
+                      w-full
+                      h-full
+                      object-cover
+                    "
                     loading="lazy"
-                    className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="w-full h-full p-2 bg-neutral-950 flex items-center justify-center text-[10px] text-neutral-400 text-center line-clamp-3">
-                    {post.caption || 'منشور بدون نص'}
+                  <div
+                    className="
+                      w-full
+                      h-full
+                      flex
+                      items-center
+                      justify-center
+                      p-4
+                      text-center
+                      text-neutral-400
+                      text-xs
+                    "
+                  >
+                    {post.caption ||
+                      'منشور'}
                   </div>
                 )}
               </div>
             ))}
           </div>
         )}
+
       </div>
+
     </div>
   );
 }
-
