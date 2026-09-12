@@ -6,10 +6,7 @@ import {
   Heart,
   MessageCircle,
   Share2,
-  Loader2,
   Send,
-  PlusCircle,
-  Bell,
   Plus,
 } from 'lucide-react';
 import { CreatePostModal } from '@/components/CreatePostModal';
@@ -21,17 +18,14 @@ interface Post {
   video_url: string | null;
   caption: string | null;
   created_at: string;
-
   post_type?: 'text' | 'image' | 'video' | 'reel';
   background_style?: string | null;
   media_urls?: string[];
   video_type?: 'video' | 'reel' | null;
-
   profiles?: {
     username: string;
     avatar_url: string | null;
   };
-
   likes_count: number;
   user_has_liked: boolean;
 }
@@ -53,207 +47,395 @@ interface UserProfile {
   avatar_url: string | null;
 }
 
+/*
+ * Simple in-memory cache.
+ * This prevents the Feed from starting completely from zero
+ * every time the user comes back to the page.
+ */
+let feedCache: {
+  posts: Post[];
+  currentUserProfile: UserProfile | null;
+  activeUsers: UserProfile[];
+} | null = null;
+
 export default function FeedPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [posts, setPosts] = useState<Post[]>(
+    feedCache?.posts || []
+  );
+
   const [currentUserProfile, setCurrentUserProfile] =
-    useState<UserProfile | null>(null);
+    useState<UserProfile | null>(
+      feedCache?.currentUserProfile || null
+    );
 
-  const [activeUsers, setActiveUsers] = useState<UserProfile[]>([]);
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const [activeUsers, setActiveUsers] = useState<UserProfile[]>(
+    feedCache?.activeUsers || []
+  );
 
-  // Create Post Modal
+  const [loading, setLoading] = useState(
+    !feedCache?.posts.length
+  );
+
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Comments
-  const [activePostId, setActivePostId] = useState<string | null>(null);
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [newComment, setNewComment] = useState('');
-  const [loadingComments, setLoadingComments] = useState(false);
+  const [activePostId, setActivePostId] =
+    useState<string | null>(null);
+
+  const [comments, setComments] =
+    useState<Comment[]>([]);
+
+  const [newComment, setNewComment] =
+    useState('');
+
+  const [loadingComments, setLoadingComments] =
+    useState(false);
 
   useEffect(() => {
-    loadUserProfileAndPosts();
+    if (!user) return;
+
+    void loadFeed();
   }, [user]);
 
-  async function loadUserProfileAndPosts() {
-    setLoading(true);
+  async function loadFeed() {
+    if (!user) return;
+
+    /*
+     * If we already have cached data,
+     * keep showing it while refreshing in background.
+     */
+    if (!feedCache?.posts.length) {
+      setLoading(true);
+    }
 
     try {
-      if (user) {
-        const { data: myProfile } = await supabase
+      /*
+       * Load profile, users and posts together.
+       * This is much faster than waiting for each request separately.
+       */
+      const [
+        myProfileResult,
+        profilesResult,
+        postsResult,
+      ] = await Promise.all([
+        supabase
           .from('profiles')
           .select('id, username, avatar_url')
           .eq('id', user.id)
-          .single();
+          .maybeSingle(),
 
-        if (myProfile) {
-          setCurrentUserProfile(myProfile);
-        }
-      }
+        supabase
+          .from('profiles')
+          .select('id, username, avatar_url')
+          .limit(20),
 
-      const { data: profilesData } = await supabase
-        .from('profiles')
-        .select('id, username, avatar_url');
+        supabase
+          .from('posts')
+          .select(
+            `
+              id,
+              user_id,
+              image_url,
+              video_url,
+              caption,
+              created_at,
+              post_type,
+              background_style,
+              media_urls,
+              video_type
+            `
+          )
+          .order('created_at', {
+            ascending: false,
+          })
+          .limit(30),
+      ]);
 
-      if (profilesData) {
-        setActiveUsers(
-          profilesData.filter((profile) => profile.id !== user?.id)
+      if (myProfileResult.error) {
+        console.error(
+          'Profile error:',
+          myProfileResult.error
         );
       }
 
-      const profilesMap = new Map(
-        profilesData?.map((profile) => [profile.id, profile])
+      if (profilesResult.error) {
+        console.error(
+          'Profiles error:',
+          profilesResult.error
+        );
+      }
+
+      if (postsResult.error) {
+        throw postsResult.error;
+      }
+
+      const myProfile =
+        myProfileResult.data || null;
+
+      const profilesData =
+        profilesResult.data || [];
+
+      const postsData =
+        postsResult.data || [];
+
+      setCurrentUserProfile(myProfile);
+
+      const otherUsers = profilesData.filter(
+        (profile) => profile.id !== user.id
       );
 
-      const { data: postsData, error: postsError } = await supabase
-        .from('posts')
-        .select('*')
-        .order('created_at', { ascending: false });
+      setActiveUsers(otherUsers);
 
-      if (postsError) {
-        throw postsError;
+      /*
+       * Build profile lookup.
+       */
+      const profilesMap = new Map(
+        profilesData.map((profile) => [
+          profile.id,
+          profile,
+        ])
+      );
+
+      /*
+       * Get likes only for the posts currently displayed.
+       * We do NOT download likes for the entire database.
+       */
+      const postIds = postsData.map(
+        (post) => post.id
+      );
+
+      let likesData: {
+        post_id: string;
+        user_id: string;
+      }[] = [];
+
+      if (postIds.length > 0) {
+        const likesResult = await supabase
+          .from('likes')
+          .select('post_id, user_id')
+          .in('post_id', postIds);
+
+        if (likesResult.error) {
+          console.error(
+            'Likes error:',
+            likesResult.error
+          );
+        } else {
+          likesData = likesResult.data || [];
+        }
       }
 
-      const { data: likesData, error: likesError } = await supabase
-        .from('likes')
-        .select('post_id, user_id');
+      /*
+       * Group likes by post.
+       * This is faster than filtering the entire likes
+       * array for every single post.
+       */
+      const likesMap = new Map<
+        string,
+        {
+          count: number;
+          likedByCurrentUser: boolean;
+        }
+      >();
 
-      if (likesError) {
-        throw likesError;
-      }
+      for (const like of likesData) {
+        const existing =
+          likesMap.get(like.post_id) || {
+            count: 0,
+            likedByCurrentUser: false,
+          };
 
-      const formatted: Post[] = (postsData || []).map((post) => {
-        const postLikes =
-          likesData?.filter((like) => like.post_id === post.id) || [];
+        existing.count += 1;
 
-        const foundProfile = profilesMap.get(post.user_id);
-
-        let mediaUrls: string[] = [];
-
-        if (Array.isArray(post.media_urls)) {
-          mediaUrls = post.media_urls;
+        if (like.user_id === user.id) {
+          existing.likedByCurrentUser = true;
         }
 
-        return {
-          id: post.id,
-          user_id: post.user_id,
+        likesMap.set(
+          like.post_id,
+          existing
+        );
+      }
 
-          image_url: post.image_url ?? null,
-          video_url: post.video_url ?? null,
-          caption: post.caption ?? null,
-          created_at: post.created_at,
+      const formattedPosts: Post[] =
+        postsData.map((post) => {
+          const profile =
+            profilesMap.get(post.user_id);
 
-          post_type: post.post_type ?? 'image',
-          background_style: post.background_style ?? null,
-          media_urls: mediaUrls,
-          video_type: post.video_type ?? null,
+          const likeInfo =
+            likesMap.get(post.id) || {
+              count: 0,
+              likedByCurrentUser: false,
+            };
 
-          profiles: {
-            username: foundProfile?.username || 'مستخدم',
-            avatar_url: foundProfile?.avatar_url ?? null,
-          },
+          let mediaUrls: string[] = [];
 
-          likes_count: postLikes.length,
+          if (
+            Array.isArray(post.media_urls)
+          ) {
+            mediaUrls = post.media_urls;
+          }
 
-          user_has_liked: postLikes.some(
-            (like) => like.user_id === user?.id
-          ),
-        };
-      });
+          return {
+            id: post.id,
+            user_id: post.user_id,
+            image_url:
+              post.image_url ?? null,
+            video_url:
+              post.video_url ?? null,
+            caption:
+              post.caption ?? null,
+            created_at:
+              post.created_at,
 
-      setPosts(formatted);
+            post_type:
+              post.post_type ?? 'image',
+
+            background_style:
+              post.background_style ?? null,
+
+            media_urls:
+              mediaUrls,
+
+            video_type:
+              post.video_type ?? null,
+
+            profiles: {
+              username:
+                profile?.username ||
+                'مستخدم',
+
+              avatar_url:
+                profile?.avatar_url ??
+                null,
+            },
+
+            likes_count:
+              likeInfo.count,
+
+            user_has_liked:
+              likeInfo.likedByCurrentUser,
+          };
+        });
+
+      setPosts(formattedPosts);
+
+      /*
+       * Save everything in memory.
+       */
+      feedCache = {
+        posts: formattedPosts,
+        currentUserProfile:
+          myProfile,
+        activeUsers:
+          otherUsers,
+      };
     } catch (error) {
-      console.error('Error loading feed:', error);
+      console.error(
+        'Error loading feed:',
+        error
+      );
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleToggleLike(post: Post) {
+  async function handleToggleLike(
+    post: Post
+  ) {
     if (!user) return;
 
-    setPosts((prev) =>
-      prev.map((item) => {
-        if (item.id !== post.id) return item;
+    const previousLiked =
+      post.user_has_liked;
+
+    /*
+     * Update UI immediately.
+     */
+    setPosts((currentPosts) =>
+      currentPosts.map((item) => {
+        if (item.id !== post.id) {
+          return item;
+        }
 
         return {
           ...item,
-          user_has_liked: !item.user_has_liked,
-          likes_count: item.user_has_liked
-            ? item.likes_count - 1
-            : item.likes_count + 1,
+          user_has_liked:
+            !previousLiked,
+
+          likes_count:
+            previousLiked
+              ? Math.max(
+                  0,
+                  item.likes_count - 1
+                )
+              : item.likes_count + 1,
         };
       })
     );
 
-    if (post.user_has_liked) {
-      const { error } = await supabase
-        .from('likes')
-        .delete()
-        .eq('post_id', post.id)
-        .eq('user_id', user.id);
+    try {
+      if (previousLiked) {
+        const { error } =
+          await supabase
+            .from('likes')
+            .delete()
+            .eq('post_id', post.id)
+            .eq('user_id', user.id);
 
-      if (error) {
-        console.error('Error removing like:', error);
+        if (error) {
+          throw error;
+        }
+      } else {
+        const { error } =
+          await supabase
+            .from('likes')
+            .insert({
+              post_id: post.id,
+              user_id: user.id,
+            });
 
-        setPosts((prev) =>
-          prev.map((item) =>
-            item.id === post.id
-              ? {
-                  ...item,
-                  user_has_liked: true,
-                  likes_count: item.likes_count + 1,
-                }
-              : item
-          )
-        );
+        if (error) {
+          throw error;
+        }
       }
-    } else {
-      const { error } = await supabase
-        .from('likes')
-        .insert([
-          {
-            post_id: post.id,
-            user_id: user.id,
-          },
-        ]);
+    } catch (error) {
+      console.error(
+        'Like error:',
+        error
+      );
 
-      if (error) {
-        console.error('Error adding like:', error);
+      /*
+       * Roll back UI if database fails.
+       */
+      setPosts((currentPosts) =>
+        currentPosts.map((item) => {
+          if (item.id !== post.id) {
+            return item;
+          }
 
-        setPosts((prev) =>
-          prev.map((item) =>
-            item.id === post.id
-              ? {
-                  ...item,
-                  user_has_liked: false,
-                  likes_count: Math.max(0, item.likes_count - 1),
-                }
-              : item
-          )
-        );
-      }
+          return {
+            ...item,
+            user_has_liked:
+              previousLiked,
+
+            likes_count:
+              previousLiked
+                ? item.likes_count + 1
+                : Math.max(
+                    0,
+                    item.likes_count - 1
+                  ),
+          };
+        })
+      );
     }
   }
 
-  function handleShare(postId: string) {
-    const url = `${window.location.origin}/#post-${postId}`;
-
-    navigator.clipboard
-      .writeText(url)
-      .then(() => {
-        alert('تم نسخ رابط المنشور بنجاح!');
-      })
-      .catch((error) => {
-        console.error('Error copying post URL:', error);
-        alert('تعذر نسخ رابط المنشور.');
-      });
-  }
-
-  async function toggleComments(postId: string) {
+  async function toggleComments(
+    postId: string
+  ) {
     if (activePostId === postId) {
       setActivePostId(null);
       return;
@@ -261,49 +443,126 @@ export default function FeedPage() {
 
     setActivePostId(postId);
     setLoadingComments(true);
+    setComments([]);
 
     try {
-      const { data, error } = await supabase
-        .from('comments')
-        .select('*, profiles(username, avatar_url)')
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true });
+      const { data, error } =
+        await supabase
+          .from('comments')
+          .select(
+            '*, profiles(username, avatar_url)'
+          )
+          .eq('post_id', postId)
+          .order('created_at', {
+            ascending: true,
+          });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       setComments(data || []);
     } catch (error) {
-      console.error('Error loading comments:', error);
-      setComments([]);
+      console.error(
+        'Comments error:',
+        error
+      );
     } finally {
       setLoadingComments(false);
     }
   }
 
-  async function handleAddComment(postId: string) {
-    if (!newComment.trim() || !user) return;
+  async function handleAddComment(
+    postId: string
+  ) {
+    if (
+      !user ||
+      !newComment.trim()
+    ) {
+      return;
+    }
 
-    const { data, error } = await supabase
-      .from('comments')
-      .insert([
-        {
-          post_id: postId,
-          user_id: user.id,
-          content: newComment.trim(),
-        },
-      ])
-      .select('*, profiles(username, avatar_url)')
-      .single();
+    const text =
+      newComment.trim();
 
-    if (!error && data) {
-      setComments((prev) => [...prev, data]);
+    try {
+      const { data, error } =
+        await supabase
+          .from('comments')
+          .insert({
+            post_id: postId,
+            user_id: user.id,
+            content: text,
+          })
+          .select(
+            '*, profiles(username, avatar_url)'
+          )
+          .single();
+
+      if (error) {
+        throw error;
+      }
+
+      if (data) {
+        setComments((current) => [
+          ...current,
+          data,
+        ]);
+      }
+
       setNewComment('');
-    } else if (error) {
-      console.error('Error adding comment:', error);
+    } catch (error) {
+      console.error(
+        'Add comment error:',
+        error
+      );
     }
   }
 
-  function getTextBackground(style?: string | null) {
+  async function handleShare(
+    postId: string
+  ) {
+    const url =
+      `${window.location.origin}/post/${postId}`;
+
+    try {
+      if (
+        navigator.share
+      ) {
+        await navigator.share({
+          title:
+            'Deep Signal',
+          text:
+            'شوف هاد المنشور في Deep Signal',
+          url,
+        });
+      } else {
+        await navigator.clipboard.writeText(
+          url
+        );
+
+        alert(
+          'تم نسخ رابط المنشور'
+        );
+      }
+    } catch (error) {
+      if (
+        error instanceof DOMException &&
+        error.name === 'AbortError'
+      ) {
+        return;
+      }
+
+      console.error(
+        'Share error:',
+        error
+      );
+    }
+  }
+
+  function getTextBackground(
+    style?: string | null
+  ) {
     switch (style) {
       case 'sunset':
         return 'bg-gradient-to-br from-orange-500 via-rose-500 to-purple-600';
@@ -328,19 +587,36 @@ export default function FeedPage() {
     }
   }
 
-  function renderPostMedia(post: Post) {
-    const mediaUrls =
-      post.media_urls && post.media_urls.length > 0
-        ? post.media_urls
-        : post.image_url
-        ? [post.image_url]
-        : [];
+  function renderPostMedia(
+    post: Post
+  ) {
+    /*
+     * REEL / VIDEO
+     * Video must be checked BEFORE images.
+     */
+    if (post.video_url) {
+      return (
+        <div className="w-full bg-black overflow-hidden">
+          <video
+            src={post.video_url}
+            controls
+            playsInline
+            preload="metadata"
+            className="w-full max-h-[600px] object-contain"
+          />
+        </div>
+      );
+    }
 
-    // TEXT
-    if (post.post_type === 'text') {
+    /*
+     * TEXT
+     */
+    if (
+      post.post_type === 'text'
+    ) {
       return (
         <div
-          className={`min-h-[260px] flex items-center justify-center p-8 text-center ${getTextBackground(
+          className={`min-h-[280px] w-full flex items-center justify-center p-8 text-center ${getTextBackground(
             post.background_style
           )}`}
         >
@@ -351,392 +627,477 @@ export default function FeedPage() {
       );
     }
 
-    // MULTIPLE IMAGES
-    if (mediaUrls.length > 1) {
+    /*
+     * Multiple images
+     */
+    const mediaUrls =
+      post.media_urls &&
+      post.media_urls.length > 0
+        ? post.media_urls
+        : post.image_url
+        ? [post.image_url]
+        : [];
+
+    if (
+      mediaUrls.length > 1
+    ) {
       return (
         <div className="grid grid-cols-2 gap-1 bg-black">
-          {mediaUrls.map((url, index) => (
-            <img
-              key={`${url}-${index}`}
-              src={url}
-              alt={`Post ${index + 1}`}
-              className="w-full aspect-square object-cover"
-            />
-          ))}
+          {mediaUrls.map(
+            (url, index) => (
+              <img
+                key={`${url}-${index}`}
+                src={url}
+                alt={`صورة ${index + 1}`}
+                loading="lazy"
+                className="w-full aspect-square object-cover"
+              />
+            )
+          )}
         </div>
       );
     }
 
-    // SINGLE IMAGE
-    if (mediaUrls.length === 1) {
+    /*
+     * Single image
+     */
+    if (
+      mediaUrls.length === 1
+    ) {
       return (
         <div className="w-full bg-neutral-950">
           <img
             src={mediaUrls[0]}
             alt="Post"
-            className="w-full max-h-[500px] object-contain"
-          />
-        </div>
-      );
-    }
-
-    // VIDEO / REEL
-    if (post.video_url) {
-      return (
-        <div className="w-full bg-black">
-          <video
-            src={post.video_url}
-            controls
-            playsInline
+            loading="lazy"
             className="w-full max-h-[600px] object-contain"
           />
         </div>
       );
     }
 
-    return null;
+    return (
+      <div className="min-h-[100px] bg-neutral-900 flex items-center justify-center text-neutral-500">
+        لا توجد وسائط
+      </div>
+    );
+  }
+
+  if (
+    loading &&
+    posts.length === 0
+  ) {
+    return (
+      <div className="min-h-screen bg-black text-white">
+        <div className="max-w-md mx-auto px-4 py-4">
+          <div className="h-12 w-40 bg-neutral-900 rounded-xl animate-pulse mb-6" />
+
+          <div className="h-20 bg-neutral-900 rounded-2xl animate-pulse mb-4" />
+
+          <div className="h-80 bg-neutral-900 rounded-2xl animate-pulse" />
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-md mx-auto px-4 py-4 pb-28 text-white min-h-screen bg-black">
+    <div className="min-h-screen bg-black text-white">
+      <div className="max-w-md mx-auto px-4 pt-4 pb-28">
 
-      {/* HEADER */}
-      <header className="flex items-center justify-between py-3 mb-4 border-b border-white/10">
-        <div className="flex items-center gap-3">
-
-          <div
-            onClick={() => navigate(`/profile/${user?.id}`)}
-            className="relative cursor-pointer"
+        {/* HEADER */}
+        <header className="flex items-center justify-between mb-5">
+          <button
+            type="button"
+            onClick={() =>
+              user &&
+              navigate(
+                `/profile/${user.id}`
+              )
+            }
+            className="flex items-center gap-3"
           >
             <div className="w-11 h-11 rounded-full p-[2px] bg-gradient-to-tr from-rose-500 via-purple-500 to-amber-500">
-
               {currentUserProfile?.avatar_url ? (
                 <img
-                  src={currentUserProfile.avatar_url}
+                  src={
+                    currentUserProfile.avatar_url
+                  }
                   alt="Avatar"
-                  className="w-full h-full object-cover rounded-full border border-black"
+                  className="w-full h-full rounded-full object-cover border-2 border-black"
                 />
               ) : (
-                <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-sm">
+                <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold">
                   {currentUserProfile?.username
                     ?.charAt(0)
                     .toUpperCase() || 'U'}
                 </div>
               )}
-
             </div>
 
-            <span
-              onClick={(event) => {
-                event.stopPropagation();
-                setIsModalOpen(true);
-              }}
-              className="absolute -bottom-1 -left-1 bg-rose-500 text-white rounded-full p-0.5 border-2 border-black"
-            >
-              <Plus className="w-3 h-3 stroke-[3]" />
-            </span>
-          </div>
+            <div className="text-left">
+              <p className="text-sm font-bold">
+                {currentUserProfile?.username ||
+                  'مستخدم'}
+              </p>
 
-          <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold">
-                {currentUserProfile?.username || 'مستخدم'}
-              </span>
-              <span className="text-xs">🇲🇦</span>
+              <p className="text-xs text-neutral-500">
+                الصفحة الرئيسية
+              </p>
             </div>
+          </button>
 
-            <span className="text-[10px] text-neutral-400">
-              مرحباً بك مجدداً
-            </span>
-          </div>
-        </div>
-
-        <button
-          onClick={() => {
-            setHasUnreadNotifications(false);
-            navigate('/notifications');
-          }}
-          className="relative p-2.5 rounded-full bg-neutral-900 border border-white/10"
-        >
-          <Bell className="w-5 h-5" />
-
-          {hasUnreadNotifications && (
-            <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-black animate-pulse" />
-          )}
-        </button>
-      </header>
-
-      {/* STORIES */}
-      <div className="flex items-center gap-3 overflow-x-auto pb-4 mb-4 scrollbar-hide border-b border-white/5">
-
-        <div
-          onClick={() => setIsModalOpen(true)}
-          className="flex flex-col items-center gap-1 cursor-pointer shrink-0"
-        >
-          <div className="relative w-14 h-14 rounded-full p-[2px] bg-neutral-800 border border-dashed border-rose-500/50 flex items-center justify-center">
-
-            {currentUserProfile?.avatar_url ? (
-              <img
-                src={currentUserProfile.avatar_url}
-                className="w-full h-full object-cover rounded-full opacity-80"
-                alt="قصتك"
-              />
-            ) : (
-              <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center text-xs font-bold">
-                {currentUserProfile?.username?.charAt(0)}
-              </div>
-            )}
-
-            <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-full">
-              <Plus className="w-5 h-5 text-rose-500" />
-            </div>
-          </div>
-
-          <span className="text-[10px] text-neutral-400">
-            قصتك
-          </span>
-        </div>
-
-        {activeUsers.map((profile) => (
-          <div
-            key={profile.id}
-            onClick={() => navigate(`/profile/${profile.id}`)}
-            className="flex flex-col items-center gap-1 cursor-pointer shrink-0"
+          <button
+            type="button"
+            onClick={() =>
+              setIsModalOpen(true)
+            }
+            className="w-10 h-10 rounded-full bg-neutral-900 border border-white/10 flex items-center justify-center"
           >
-            <div className="w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600">
+            <Plus className="w-5 h-5" />
+          </button>
+        </header>
 
-              {profile.avatar_url ? (
-                <img
-                  src={profile.avatar_url}
-                  alt={profile.username}
-                  className="w-full h-full object-cover rounded-full border border-black"
-                />
-              ) : (
-                <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-xs border border-black">
-                  {profile.username?.charAt(0).toUpperCase()}
-                </div>
-              )}
+        {/* USERS */}
+        {activeUsers.length > 0 && (
+          <section className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-bold">
+                أشخاص قد تعرفهم
+              </h2>
 
+              <span className="text-xs text-neutral-500">
+                {activeUsers.length}
+              </span>
             </div>
 
-            <span className="text-[10px] text-neutral-300 font-medium max-w-[60px] truncate">
-              {profile.username}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* CREATE POST BUTTON */}
-      <button
-        onClick={() => setIsModalOpen(true)}
-        className="w-full mb-6 py-3 px-4 bg-neutral-900 border border-white/10 hover:border-rose-500/50 rounded-2xl flex items-center justify-between text-neutral-400 text-xs shadow-lg"
-      >
-        <span className="flex items-center gap-2">
-          <PlusCircle className="w-5 h-5 text-rose-500" />
-          ماذا يدور في ذهنك اليوم؟
-        </span>
-
-        <span className="bg-rose-500/10 text-rose-500 px-3 py-1 rounded-xl font-semibold text-[11px]">
-          + منشور / ريلز
-        </span>
-      </button>
-
-      {/* NEW CREATE POST MODAL */}
-      <CreatePostModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onPostCreated={loadUserProfileAndPosts}
-      />
-
-      {/* FEED */}
-      {loading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
-        </div>
-      ) : posts.length === 0 ? (
-        <div className="text-center py-12 text-neutral-500">
-          ما كاين حتى منشور دابا.
-        </div>
-      ) : (
-        <div className="space-y-4">
-
-          {posts.map((post) => (
-            <div
-              key={post.id}
-              id={`post-${post.id}`}
-              className="bg-neutral-900 border border-white/10 rounded-2xl overflow-hidden"
-            >
-
-              {/* POST HEADER */}
-              <div className="p-3 flex items-center justify-between border-b border-white/5">
-                <div
-                  onClick={() => navigate(`/profile/${post.user_id}`)}
-                  className="flex items-center gap-3 cursor-pointer"
-                >
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-rose-500 to-purple-600 p-[1.5px]">
-
-                    {post.profiles?.avatar_url ? (
-                      <img
-                        src={post.profiles.avatar_url}
-                        alt="Avatar"
-                        className="w-full h-full object-cover rounded-full border border-black"
-                      />
-                    ) : (
-                      <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold text-xs">
-                        {post.profiles?.username
-                          ?.charAt(0)
-                          .toUpperCase()}
-                      </div>
-                    )}
-
-                  </div>
-
-                  <div>
-                    <h3 className="text-xs font-bold">
-                      {post.profiles?.username || 'مستخدم'}
-                    </h3>
-
-                    <p className="text-[10px] text-neutral-500">
-                      {new Date(post.created_at).toLocaleDateString('ar-MA')}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* CAPTION FOR IMAGE / VIDEO */}
-              {post.caption && post.post_type !== 'text' && (
-                <p className="p-3 text-xs text-neutral-200 leading-relaxed whitespace-pre-wrap">
-                  {post.caption}
-                </p>
-              )}
-
-              {/* MEDIA */}
-              {renderPostMedia(post)}
-
-              {/* ACTIONS */}
-              <div className="p-3 flex items-center justify-between border-t border-white/5 text-neutral-400 text-xs">
-
-                <button
-                  onClick={() => handleToggleLike(post)}
-                  className={`flex items-center gap-1.5 ${
-                    post.user_has_liked
-                      ? 'text-rose-500 font-bold'
-                      : 'hover:text-white'
-                  }`}
-                >
-                  <Heart
-                    className={`w-4 h-4 ${
-                      post.user_has_liked ? 'fill-rose-500' : ''
-                    }`}
-                  />
-
-                  <span>{post.likes_count} إعجاب</span>
-                </button>
-
-                <button
-                  onClick={() => toggleComments(post.id)}
-                  className="flex items-center gap-1.5 hover:text-white"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  <span>تعليق</span>
-                </button>
-
-                <button
-                  onClick={() => handleShare(post.id)}
-                  className="flex items-center gap-1.5 hover:text-white"
-                >
-                  <Share2 className="w-4 h-4" />
-                  <span>مشاركة</span>
-                </button>
-
-              </div>
-
-              {/* COMMENTS */}
-              {activePostId === post.id && (
-                <div className="bg-neutral-950 p-3 border-t border-white/10 space-y-3">
-
-                  {loadingComments ? (
-                    <div className="flex justify-center py-2">
-                      <Loader2 className="w-4 h-4 animate-spin text-rose-500" />
-                    </div>
-                  ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-
-                      {comments.length === 0 ? (
-                        <p className="text-[11px] text-neutral-500 text-center py-2">
-                          لا توجد تعليقات بعد. كن أول من يعلق!
-                        </p>
+            <div className="grid grid-cols-3 gap-3">
+              {activeUsers
+                .slice(0, 6)
+                .map((profile) => (
+                  <button
+                    key={profile.id}
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        `/profile/${profile.id}`
+                      )
+                    }
+                    className="bg-neutral-950 border border-white/10 rounded-2xl p-3 text-center"
+                  >
+                    <div className="w-12 h-12 mx-auto mb-2 rounded-full p-[2px] bg-gradient-to-tr from-rose-500 to-purple-600">
+                      {profile.avatar_url ? (
+                        <img
+                          src={
+                            profile.avatar_url
+                          }
+                          alt={
+                            profile.username
+                          }
+                          className="w-full h-full rounded-full object-cover border-2 border-black"
+                        />
                       ) : (
-                        comments.map((comment) => (
-                          <div
-                            key={comment.id}
-                            className="bg-neutral-900 p-2 rounded-xl text-xs flex items-start gap-2"
-                          >
-                            <div
-                              onClick={() =>
-                                navigate(`/profile/${comment.user_id}`)
-                              }
-                              className="w-6 h-6 rounded-full bg-neutral-800 shrink-0 cursor-pointer overflow-hidden"
-                            >
-                              {comment.profiles?.avatar_url ? (
-                                <img
-                                  src={comment.profiles.avatar_url}
-                                  alt={comment.profiles.username}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <span className="flex items-center justify-center h-full text-[10px] font-bold">
-                                  {comment.profiles?.username?.charAt(0)}
-                                </span>
-                              )}
-                            </div>
-
-                            <div>
-                              <span
-                                onClick={() =>
-                                  navigate(`/profile/${comment.user_id}`)
-                                }
-                                className="font-bold text-rose-400 block text-[11px] cursor-pointer"
-                              >
-                                {comment.profiles?.username || 'مستخدم'}
-                              </span>
-
-                              <span className="text-neutral-200">
-                                {comment.content}
-                              </span>
-                            </div>
-                          </div>
-                        ))
+                        <div className="w-full h-full rounded-full bg-neutral-800 flex items-center justify-center font-bold text-sm">
+                          {profile.username
+                            ?.charAt(0)
+                            .toUpperCase()}
+                        </div>
                       )}
-
                     </div>
-                  )}
 
-                  <div className="flex gap-2 pt-1">
-                    <input
-                      type="text"
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      placeholder="اكتب تعليقاً..."
-                      className="flex-1 bg-neutral-900 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-rose-500"
-                    />
+                    <p className="text-xs font-semibold truncate">
+                      {profile.username}
+                    </p>
 
+                    <span className="block mt-2 text-[10px] text-rose-500">
+                      عرض الملف
+                    </span>
+                  </button>
+                ))}
+            </div>
+          </section>
+        )}
+
+        {/* POSTS */}
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-bold">
+              المنشورات
+            </h2>
+
+            {loading && (
+              <span className="text-[10px] text-neutral-500">
+                تحديث...
+              </span>
+            )}
+          </div>
+
+          {posts.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-neutral-950 p-8 text-center">
+              <p className="text-neutral-400 text-sm">
+                ما كاين حتى منشور دابا
+              </p>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setIsModalOpen(true)
+                }
+                className="mt-4 px-5 py-2.5 rounded-xl bg-rose-500 text-white text-sm font-bold"
+              >
+                إنشاء أول منشور
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {posts.map((post) => (
+                <article
+                  key={post.id}
+                  className="rounded-2xl overflow-hidden bg-neutral-950 border border-white/10"
+                >
+                  {/* POST HEADER */}
+                  <div className="flex items-center justify-between p-3">
                     <button
-                      onClick={() => handleAddComment(post.id)}
-                      className="bg-rose-500 hover:bg-rose-600 text-white p-2 rounded-xl"
+                      type="button"
+                      onClick={() =>
+                        navigate(
+                          `/profile/${post.user_id}`
+                        )
+                      }
+                      className="flex items-center gap-3 min-w-0"
                     >
-                      <Send className="w-3.5 h-3.5" />
+                      <div className="w-10 h-10 rounded-full bg-neutral-800 overflow-hidden shrink-0">
+                        {post.profiles
+                          ?.avatar_url ? (
+                          <img
+                            src={
+                              post.profiles
+                                .avatar_url
+                            }
+                            alt={
+                              post.profiles
+                                .username
+                            }
+                            loading="lazy"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center font-bold">
+                            {post.profiles?.username
+                              ?.charAt(0)
+                              .toUpperCase() ||
+                              'U'}
+                          </div>
+                        )}
+                      </div>
+
+                      <span className="text-sm font-bold truncate">
+                        {post.profiles
+                          ?.username ||
+                          'مستخدم'}
+                      </span>
                     </button>
                   </div>
 
-                </div>
-              )}
+                  {/* MEDIA */}
+                  {renderPostMedia(post)}
 
+                  {/* CAPTION */}
+                  {post.caption &&
+                    post.post_type !==
+                      'text' && (
+                      <div className="px-4 pt-3">
+                        <p className="text-sm text-neutral-200 whitespace-pre-wrap">
+                          {post.caption}
+                        </p>
+                      </div>
+                    )}
+
+                  {/* ACTIONS */}
+                  <div className="flex items-center gap-2 px-3 pt-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleToggleLike(
+                          post
+                        )
+                      }
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-full transition ${
+                        post.user_has_liked
+                          ? 'text-rose-500 bg-rose-500/10'
+                          : 'text-neutral-300 bg-neutral-900'
+                      }`}
+                    >
+                      <Heart
+                        className="w-5 h-5"
+                        fill={
+                          post.user_has_liked
+                            ? 'currentColor'
+                            : 'none'
+                        }
+                      />
+
+                      <span className="text-xs">
+                        {post.likes_count}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void toggleComments(
+                          post.id
+                        )
+                      }
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-neutral-900 text-neutral-300"
+                    >
+                      <MessageCircle className="w-5 h-5" />
+
+                      <span className="text-xs">
+                        تعليق
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleShare(
+                          post.id
+                        )
+                      }
+                      className="ml-auto p-2 rounded-full bg-neutral-900 text-neutral-300"
+                    >
+                      <Share2 className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* COMMENTS */}
+                  {activePostId ===
+                    post.id && (
+                    <div className="mt-3 border-t border-white/10 p-3">
+                      {loadingComments ? (
+                        <p className="text-xs text-neutral-500 text-center py-3">
+                          جاري تحميل التعليقات...
+                        </p>
+                      ) : (
+                        <div className="space-y-3 max-h-60 overflow-y-auto">
+                          {comments.length ===
+                          0 ? (
+                            <p className="text-xs text-neutral-500 text-center py-2">
+                              لا توجد تعليقات بعد
+                            </p>
+                          ) : (
+                            comments.map(
+                              (comment) => (
+                                <div
+                                  key={
+                                    comment.id
+                                  }
+                                  className="flex gap-2"
+                                >
+                                  <div className="w-7 h-7 rounded-full bg-neutral-800 shrink-0 overflow-hidden">
+                                    {comment
+                                      .profiles
+                                      ?.avatar_url ? (
+                                      <img
+                                        src={
+                                          comment
+                                            .profiles
+                                            .avatar_url
+                                        }
+                                        alt=""
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center text-[10px] font-bold">
+                                        {comment
+                                          .profiles
+                                          ?.username
+                                          ?.charAt(
+                                            0
+                                          )
+                                          .toUpperCase() ||
+                                          'U'}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="bg-neutral-900 rounded-xl px-3 py-2 min-w-0">
+                                    <p className="text-[11px] font-bold">
+                                      {comment
+                                        .profiles
+                                        ?.username ||
+                                        'مستخدم'}
+                                    </p>
+
+                                    <p className="text-xs text-neutral-300 break-words">
+                                      {
+                                        comment.content
+                                      }
+                                    </p>
+                                  </div>
+                                </div>
+                              )
+                            )
+                          )}
+                        </div>
+                      )}
+
+                      {/* ADD COMMENT */}
+                      <form
+                        onSubmit={(event) => {
+                          event.preventDefault();
+
+                          void handleAddComment(
+                            post.id
+                          );
+                        }}
+                        className="flex items-center gap-2 mt-3"
+                      >
+                        <input
+                          value={newComment}
+                          onChange={(event) =>
+                            setNewComment(
+                              event.target.value
+                            )
+                          }
+                          placeholder="كتب تعليق..."
+                          className="flex-1 min-w-0 bg-neutral-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-rose-500"
+                        />
+
+                        <button
+                          type="submit"
+                          disabled={
+                            !newComment.trim()
+                          }
+                          className="w-9 h-9 rounded-xl bg-rose-500 disabled:opacity-40 flex items-center justify-center"
+                        >
+                          <Send className="w-4 h-4" />
+                        </button>
+                      </form>
+                    </div>
+                  )}
+                </article>
+              ))}
             </div>
-          ))}
+          )}
+        </section>
+      </div>
 
-        </div>
-      )}
+      {/* CREATE MODAL */}
+      <CreatePostModal
+        isOpen={isModalOpen}
+        onClose={() =>
+          setIsModalOpen(false)
+        }
+        onPostCreated={() => {
+          setIsModalOpen(false);
+
+          /*
+           * Refresh feed after publishing.
+           */
+          void loadFeed();
+        }}
+      />
     </div>
   );
-                  }
+                }
