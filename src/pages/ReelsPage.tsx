@@ -1,12 +1,15 @@
 import {
-  useState,
   useEffect,
   useRef,
+  useState,
 } from 'react';
+
 import {
   useNavigate,
 } from 'react-router-dom';
+
 import { supabase } from '@/lib/supabase';
+
 import {
   Heart,
   MessageCircle,
@@ -17,16 +20,17 @@ import {
   VolumeX,
   Play,
 } from 'lucide-react';
+
 import Avatar from '@/components/Avatar';
 
-interface VideoPost {
+interface Reel {
   id: string;
+  user_id: string;
   video_url: string;
   caption: string | null;
-  user_id: string;
   created_at: string;
-  post_type: string | null;
-  video_type: string | null;
+  post_type: 'reel';
+  video_type: 'reel';
   profile: {
     username: string;
     avatar_url: string | null;
@@ -34,38 +38,37 @@ interface VideoPost {
 }
 
 export default function ReelsPage() {
-  const [videos, setVideos] = useState<VideoPost[]>([]);
+  const [reels, setReels] = useState<Reel[]>([]);
   const [loading, setLoading] = useState(true);
 
   const navigate = useNavigate();
 
   useEffect(() => {
-    void fetchReels();
+    void loadReels();
   }, []);
 
-  async function fetchReels() {
+  async function loadReels() {
     setLoading(true);
 
     try {
       const { data, error } = await supabase
         .from('posts')
-        .select(
-          `
-            id,
-            video_url,
-            caption,
-            user_id,
-            created_at,
-            post_type,
-            video_type,
-            profile:profiles(
-              username,
-              avatar_url
-            )
-          `
-        )
+        .select(`
+          id,
+          user_id,
+          video_url,
+          caption,
+          created_at,
+          post_type,
+          video_type,
+          profile:profiles(
+            username,
+            avatar_url
+          )
+        `)
+        .eq('post_type', 'reel')
+        .eq('video_type', 'reel')
         .not('video_url', 'is', null)
-        .or('post_type.eq.reel,video_type.eq.reel')
         .order('created_at', {
           ascending: false,
         });
@@ -74,14 +77,16 @@ export default function ReelsPage() {
         throw error;
       }
 
-      setVideos((data as VideoPost[]) || []);
-    } catch (error: unknown) {
+      setReels(
+        (data as Reel[]) || []
+      );
+    } catch (error) {
       console.error(
-        'Error fetching reels:',
+        'Error loading reels:',
         error
       );
 
-      setVideos([]);
+      setReels([]);
     } finally {
       setLoading(false);
     }
@@ -90,87 +95,116 @@ export default function ReelsPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
+        <Loader2 className="w-8 h-8 text-rose-500 animate-spin" />
       </div>
     );
   }
 
-  if (videos.length === 0) {
+  if (reels.length === 0) {
     return (
-      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
         <p className="text-neutral-400 text-sm">
-          لا توجد فيديوهات ريلز حالياً
+          لا توجد Reels حالياً
         </p>
       </div>
     );
   }
 
   return (
-    <div className="h-screen w-full bg-black snap-y snap-mandatory overflow-y-scroll scrollbar-hide">
-      {videos.map((video) => (
+    <main className="
+      h-screen
+      w-full
+      bg-black
+      overflow-y-auto
+      snap-y
+      snap-mandatory
+      scrollbar-hide
+    ">
+      {reels.map((reel) => (
         <ReelItem
-          key={video.id}
-          video={video}
-          onNavigate={navigate}
+          key={reel.id}
+          reel={reel}
+          navigate={navigate}
         />
       ))}
-    </div>
+    </main>
   );
 }
 
 function ReelItem({
-  video,
-  onNavigate,
+  reel,
+  navigate,
 }: {
-  video: VideoPost;
-  onNavigate: ReturnType<typeof useNavigate>;
+  reel: Reel;
+  navigate: ReturnType<typeof useNavigate>;
 }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const itemRef = useRef<HTMLDivElement>(null);
+  const videoRef =
+    useRef<HTMLVideoElement>(null);
 
-  const [isActive, setIsActive] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
+  const containerRef =
+    useRef<HTMLDivElement>(null);
+
+  const [isVisible, setIsVisible] =
+    useState(false);
+
+  const [isPlaying, setIsPlaying] =
+    useState(false);
+
+  const [isMuted, setIsMuted] =
+    useState(true);
 
   /*
-   * نراقبو واش الـ Reel داخل الشاشة.
-   * غير إلا وصل المستخدم ليه، كنبدأو التشغيل.
+   * مراقبة الـReel اللي داخل الشاشة
    */
   useEffect(() => {
-    const element = itemRef.current;
+    const element =
+      containerRef.current;
 
     if (!element) return;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
+    const observer =
+      new IntersectionObserver(
+        (entries) => {
+          const entry =
+            entries[0];
 
-        setIsActive(entry.isIntersecting);
+          if (!videoRef.current) {
+            return;
+          }
 
-        if (!videoRef.current) return;
+          if (entry.isIntersecting) {
+            setIsVisible(true);
 
-        if (entry.isIntersecting) {
-          videoRef.current.currentTime = 0;
+            /*
+             * يبدأ Muted
+             */
+            videoRef.current.muted = true;
 
-          videoRef.current.muted = true;
+            void videoRef.current
+              .play()
+              .then(() => {
+                setIsPlaying(true);
+              })
+              .catch(() => {
+                setIsPlaying(false);
+              });
+          } else {
+            setIsVisible(false);
 
-          void videoRef.current
-            .play()
-            .then(() => {
-              setIsPlaying(true);
-            })
-            .catch(() => {
-              setIsPlaying(false);
-            });
-        } else {
-          videoRef.current.pause();
-          setIsPlaying(false);
+            /*
+             * مهم:
+             * أي Reel خرج من الشاشة
+             * يتوقف مباشرة.
+             */
+            videoRef.current.pause();
+
+            setIsPlaying(false);
+          }
+        },
+        {
+          threshold: 0.75,
         }
-      },
-      {
-        threshold: 0.75,
-      }
-    );
+      );
 
     observer.observe(element);
 
@@ -183,50 +217,58 @@ function ReelItem({
     };
   }, []);
 
-  const togglePlay = () => {
-    if (!videoRef.current) return;
+  function togglePlay() {
+    const video =
+      videoRef.current;
 
-    if (videoRef.current.paused) {
-      void videoRef.current.play();
+    if (!video) return;
+
+    if (video.paused) {
+      void video.play();
+
       setIsPlaying(true);
     } else {
-      videoRef.current.pause();
+      video.pause();
+
       setIsPlaying(false);
     }
-  };
+  }
 
-  const toggleMute = () => {
-    if (!videoRef.current) return;
+  function toggleMute() {
+    const video =
+      videoRef.current;
 
-    const newMutedState = !videoRef.current.muted;
-
-    videoRef.current.muted = newMutedState;
-
-    setIsMuted(newMutedState);
-
-    /*
-     * إذا المستخدم شعل الصوت،
-     * نخليو الفيديو الحالي فقط هو اللي عندو الصوت.
-     */
-    if (!newMutedState && isActive) {
-      void videoRef.current.play().catch(() => {});
-    }
-  };
-
-  async function handleShare() {
-    if (
-      typeof navigator.share !==
-      'function'
-    ) {
+    if (!video || !isVisible) {
       return;
     }
 
+    video.muted =
+      !video.muted;
+
+    setIsMuted(
+      video.muted
+    );
+  }
+
+  async function handleShare() {
+    const url =
+      `${window.location.origin}/post/${reel.id}`;
+
     try {
-      await navigator.share({
-        title: 'Deep Signal Reel',
-        url: window.location.href,
-      });
-    } catch (error: unknown) {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Deep Signal Reel',
+          text: reel.caption || 'شوف هاد الـReel',
+          url,
+        });
+      } else {
+        await navigator.clipboard.writeText(url);
+
+        alert(
+          'تم نسخ الرابط'
+        );
+      }
+    } catch (error) {
       if (
         error instanceof DOMException &&
         error.name === 'AbortError'
@@ -235,37 +277,42 @@ function ReelItem({
       }
 
       console.error(
-        'Error sharing reel:',
+        'Share error:',
         error
       );
     }
   }
 
   const username =
-    video.profile?.username || 'User';
+    reel.profile?.username ||
+    'مستخدم';
 
   return (
-    <div
-      ref={itemRef}
+    <section
+      ref={containerRef}
       className="
+        relative
         h-screen
         w-full
         snap-start
-        relative
+        bg-black
+        overflow-hidden
         flex
         items-center
         justify-center
-        bg-black
-        overflow-hidden
       "
     >
       <video
         ref={videoRef}
-        src={video.video_url}
+        src={reel.video_url}
         loop
         playsInline
         muted
-        preload={isActive ? 'auto' : 'metadata'}
+        preload={
+          isVisible
+            ? 'auto'
+            : 'metadata'
+        }
         onClick={togglePlay}
         className="
           h-full
@@ -275,7 +322,18 @@ function ReelItem({
         "
       />
 
-      {/* Play icon */}
+      {/* Gradient */}
+      <div className="
+        absolute
+        inset-0
+        pointer-events-none
+        bg-gradient-to-b
+        from-black/10
+        via-transparent
+        to-black/80
+      " />
+
+      {/* Play */}
       {!isPlaying && (
         <button
           type="button"
@@ -283,10 +341,10 @@ function ReelItem({
           className="
             absolute
             inset-0
+            z-20
             flex
             items-center
             justify-center
-            z-20
           "
         >
           <div className="
@@ -299,31 +357,26 @@ function ReelItem({
             items-center
             justify-center
           ">
-            <Play className="w-8 h-8 text-white fill-white" />
+            <Play
+              className="
+                w-8
+                h-8
+                text-white
+                fill-white
+              "
+            />
           </div>
         </button>
       )}
 
-      {/* Gradient */}
+      {/* معلومات صاحب الـReel */}
       <div className="
         absolute
-        inset-0
-        bg-gradient-to-b
-        from-transparent
-        via-transparent
-        to-black/80
-        pointer-events-none
-      " />
-
-      {/* Bottom information */}
-      <div className="
-        absolute
-        bottom-20
         left-4
-        right-16
-        text-white
+        right-20
+        bottom-20
         z-30
-        space-y-3
+        text-white
       ">
         <div
           className="
@@ -331,33 +384,38 @@ function ReelItem({
             items-center
             gap-3
             cursor-pointer
+            mb-3
           "
           onClick={() =>
-            onNavigate(
-              `/profile/${video.user_id}`
+            navigate(
+              `/profile/${reel.user_id}`
             )
           }
         >
           <Avatar
             src={
-              video.profile?.avatar_url
+              reel.profile?.avatar_url
             }
             name={username}
             size="sm"
           />
 
-          <span className="font-bold text-sm">
+          <span className="
+            font-bold
+            text-sm
+          ">
             @{username}
           </span>
         </div>
 
-        {video.caption && (
+        {reel.caption && (
           <p className="
-            text-xs
-            text-neutral-200
-            line-clamp-2
+            text-sm
+            text-white
+            mb-3
+            line-clamp-3
           ">
-            {video.caption}
+            {reel.caption}
           </p>
         )}
 
@@ -369,9 +427,8 @@ function ReelItem({
           text-neutral-300
         ">
           <Music2 className="
-            w-3.5
-            h-3.5
-            animate-spin
+            w-4
+            h-4
           " />
 
           <span>
@@ -380,97 +437,85 @@ function ReelItem({
         </div>
       </div>
 
-      {/* Right buttons */}
+      {/* الأزرار */}
       <div className="
         absolute
         right-4
         bottom-24
+        z-30
         flex
         flex-col
-        items-center
         gap-5
-        z-30
-        text-white
+        items-center
       ">
-        {/* Sound */}
+        {/* الصوت */}
         <button
           type="button"
           onClick={toggleMute}
           className="
-            flex
-            flex-col
-            items-center
-            gap-1
-          "
-        >
-          <div className="
-            p-3
-            bg-neutral-900/50
-            backdrop-blur-md
+            w-12
+            h-12
             rounded-full
+            bg-black/50
+            backdrop-blur-md
             border
             border-white/10
-          ">
-            {isMuted ? (
-              <VolumeX className="w-6 h-6" />
-            ) : (
-              <Volume2 className="w-6 h-6" />
-            )}
-          </div>
+            flex
+            items-center
+            justify-center
+            text-white
+          "
+        >
+          {isMuted ? (
+            <VolumeX className="w-6 h-6" />
+          ) : (
+            <Volume2 className="w-6 h-6" />
+          )}
         </button>
 
         {/* Like */}
         <button
           type="button"
           className="
-            flex
-            flex-col
-            items-center
-            gap-1
-          "
-        >
-          <div className="
-            p-3
-            bg-neutral-900/50
-            backdrop-blur-md
+            w-12
+            h-12
             rounded-full
+            bg-black/50
+            backdrop-blur-md
             border
             border-white/10
-          ">
-            <Heart className="
-              w-6
-              h-6
-              hover:text-rose-500
-              transition
-            " />
-          </div>
+            flex
+            items-center
+            justify-center
+            text-white
+          "
+        >
+          <Heart className="w-6 h-6" />
         </button>
 
         {/* Comments */}
         <button
           type="button"
           onClick={() =>
-            onNavigate(
-              `/post/${video.id}`
+            navigate(
+              `/post/${reel.id}`
             )
           }
           className="
-            flex
-            flex-col
-            items-center
-            gap-1
-          "
-        >
-          <div className="
-            p-3
-            bg-neutral-900/50
-            backdrop-blur-md
+            w-12
+            h-12
             rounded-full
+            bg-black/50
+            backdrop-blur-md
             border
             border-white/10
-          ">
-            <MessageCircle className="w-6 h-6" />
-          </div>
+            flex
+            items-center
+            justify-center
+            text-white
+          "
+        >
+          <MessageCircle className="w-6 h-6" />
         </button>
 
         {/* Share */}
@@ -480,24 +525,22 @@ function ReelItem({
             void handleShare()
           }
           className="
-            flex
-            flex-col
-            items-center
-            gap-1
-          "
-        >
-          <div className="
-            p-3
-            bg-neutral-900/50
-            backdrop-blur-md
+            w-12
+            h-12
             rounded-full
+            bg-black/50
+            backdrop-blur-md
             border
             border-white/10
-          ">
-            <Share2 className="w-6 h-6" />
-          </div>
+            flex
+            items-center
+            justify-center
+            text-white
+          "
+        >
+          <Share2 className="w-6 h-6" />
         </button>
       </div>
-    </div>
+    </section>
   );
 }
