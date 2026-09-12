@@ -13,6 +13,9 @@ import {
   Share2,
   Music2,
   Loader2,
+  Volume2,
+  VolumeX,
+  Play,
 } from 'lucide-react';
 import Avatar from '@/components/Avatar';
 
@@ -22,6 +25,8 @@ interface VideoPost {
   caption: string | null;
   user_id: string;
   created_at: string;
+  post_type: string | null;
+  video_type: string | null;
   profile: {
     username: string;
     avatar_url: string | null;
@@ -29,14 +34,10 @@ interface VideoPost {
 }
 
 export default function ReelsPage() {
-  const [videos, setVideos] =
-    useState<VideoPost[]>([]);
+  const [videos, setVideos] = useState<VideoPost[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [loading, setLoading] =
-    useState(true);
-
-  const navigate =
-    useNavigate();
+  const navigate = useNavigate();
 
   useEffect(() => {
     void fetchReels();
@@ -46,33 +47,34 @@ export default function ReelsPage() {
     setLoading(true);
 
     try {
-      const {
-        data,
-        error,
-      } = await supabase
+      const { data, error } = await supabase
         .from('posts')
         .select(
-          '*, profile:profiles(username, avatar_url)'
+          `
+            id,
+            video_url,
+            caption,
+            user_id,
+            created_at,
+            post_type,
+            video_type,
+            profile:profiles(
+              username,
+              avatar_url
+            )
+          `
         )
-        .not(
-          'video_url',
-          'is',
-          null
-        )
-        .order(
-          'created_at',
-          {
-            ascending: false,
-          }
-        );
+        .not('video_url', 'is', null)
+        .or('post_type.eq.reel,video_type.eq.reel')
+        .order('created_at', {
+          ascending: false,
+        });
 
       if (error) {
         throw error;
       }
 
-      setVideos(
-        (data as VideoPost[]) || []
-      );
+      setVideos((data as VideoPost[]) || []);
     } catch (error: unknown) {
       console.error(
         'Error fetching reels:',
@@ -123,26 +125,92 @@ function ReelItem({
   video: VideoPost;
   onNavigate: ReturnType<typeof useNavigate>;
 }) {
-  const videoRef =
-    useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const itemRef = useRef<HTMLDivElement>(null);
 
-  const [isPlaying, setIsPlaying] =
-    useState(true);
+  const [isActive, setIsActive] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+
+  /*
+   * نراقبو واش الـ Reel داخل الشاشة.
+   * غير إلا وصل المستخدم ليه، كنبدأو التشغيل.
+   */
+  useEffect(() => {
+    const element = itemRef.current;
+
+    if (!element) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+
+        setIsActive(entry.isIntersecting);
+
+        if (!videoRef.current) return;
+
+        if (entry.isIntersecting) {
+          videoRef.current.currentTime = 0;
+
+          videoRef.current.muted = true;
+
+          void videoRef.current
+            .play()
+            .then(() => {
+              setIsPlaying(true);
+            })
+            .catch(() => {
+              setIsPlaying(false);
+            });
+        } else {
+          videoRef.current.pause();
+          setIsPlaying(false);
+        }
+      },
+      {
+        threshold: 0.75,
+      }
+    );
+
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+
+      if (videoRef.current) {
+        videoRef.current.pause();
+      }
+    };
+  }, []);
 
   const togglePlay = () => {
-    if (!videoRef.current) {
-      return;
-    }
+    if (!videoRef.current) return;
 
-    if (isPlaying) {
-      videoRef.current.pause();
-    } else {
+    if (videoRef.current.paused) {
       void videoRef.current.play();
+      setIsPlaying(true);
+    } else {
+      videoRef.current.pause();
+      setIsPlaying(false);
     }
+  };
 
-    setIsPlaying(
-      (previous) => !previous
-    );
+  const toggleMute = () => {
+    if (!videoRef.current) return;
+
+    const newMutedState = !videoRef.current.muted;
+
+    videoRef.current.muted = newMutedState;
+
+    setIsMuted(newMutedState);
+
+    /*
+     * إذا المستخدم شعل الصوت،
+     * نخليو الفيديو الحالي فقط هو اللي عندو الصوت.
+     */
+    if (!newMutedState && isActive) {
+      void videoRef.current.play().catch(() => {});
+    }
   };
 
   async function handleShare() {
@@ -174,26 +242,96 @@ function ReelItem({
   }
 
   const username =
-    video.profile?.username ||
-    'User';
+    video.profile?.username || 'User';
 
   return (
-    <div className="h-screen w-full snap-start relative flex items-center justify-center bg-black overflow-hidden">
+    <div
+      ref={itemRef}
+      className="
+        h-screen
+        w-full
+        snap-start
+        relative
+        flex
+        items-center
+        justify-center
+        bg-black
+        overflow-hidden
+      "
+    >
       <video
         ref={videoRef}
         src={video.video_url}
         loop
-        autoPlay
         playsInline
+        muted
+        preload={isActive ? 'auto' : 'metadata'}
         onClick={togglePlay}
-        className="h-full w-full object-cover cursor-pointer"
+        className="
+          h-full
+          w-full
+          object-cover
+          cursor-pointer
+        "
       />
 
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80 pointer-events-none" />
+      {/* Play icon */}
+      {!isPlaying && (
+        <button
+          type="button"
+          onClick={togglePlay}
+          className="
+            absolute
+            inset-0
+            flex
+            items-center
+            justify-center
+            z-20
+          "
+        >
+          <div className="
+            w-16
+            h-16
+            rounded-full
+            bg-black/50
+            backdrop-blur-md
+            flex
+            items-center
+            justify-center
+          ">
+            <Play className="w-8 h-8 text-white fill-white" />
+          </div>
+        </button>
+      )}
 
-      <div className="absolute bottom-20 left-4 right-16 text-white z-10 space-y-3">
+      {/* Gradient */}
+      <div className="
+        absolute
+        inset-0
+        bg-gradient-to-b
+        from-transparent
+        via-transparent
+        to-black/80
+        pointer-events-none
+      " />
+
+      {/* Bottom information */}
+      <div className="
+        absolute
+        bottom-20
+        left-4
+        right-16
+        text-white
+        z-30
+        space-y-3
+      ">
         <div
-          className="flex items-center gap-3 cursor-pointer"
+          className="
+            flex
+            items-center
+            gap-3
+            cursor-pointer
+          "
           onClick={() =>
             onNavigate(
               `/profile/${video.user_id}`
@@ -214,13 +352,27 @@ function ReelItem({
         </div>
 
         {video.caption && (
-          <p className="text-xs text-neutral-200 line-clamp-2">
+          <p className="
+            text-xs
+            text-neutral-200
+            line-clamp-2
+          ">
             {video.caption}
           </p>
         )}
 
-        <div className="flex items-center gap-2 text-xs text-neutral-300">
-          <Music2 className="w-3.5 h-3.5 animate-spin" />
+        <div className="
+          flex
+          items-center
+          gap-2
+          text-xs
+          text-neutral-300
+        ">
+          <Music2 className="
+            w-3.5
+            h-3.5
+            animate-spin
+          " />
 
           <span>
             الصوت الأصلي - {username}
@@ -228,16 +380,73 @@ function ReelItem({
         </div>
       </div>
 
-      <div className="absolute right-4 bottom-24 flex flex-col items-center gap-6 z-10 text-white">
+      {/* Right buttons */}
+      <div className="
+        absolute
+        right-4
+        bottom-24
+        flex
+        flex-col
+        items-center
+        gap-5
+        z-30
+        text-white
+      ">
+        {/* Sound */}
         <button
           type="button"
-          className="flex flex-col items-center gap-1"
+          onClick={toggleMute}
+          className="
+            flex
+            flex-col
+            items-center
+            gap-1
+          "
         >
-          <div className="p-3 bg-neutral-900/50 backdrop-blur-md rounded-full border border-white/10">
-            <Heart className="w-6 h-6 hover:text-rose-500 transition" />
+          <div className="
+            p-3
+            bg-neutral-900/50
+            backdrop-blur-md
+            rounded-full
+            border
+            border-white/10
+          ">
+            {isMuted ? (
+              <VolumeX className="w-6 h-6" />
+            ) : (
+              <Volume2 className="w-6 h-6" />
+            )}
           </div>
         </button>
 
+        {/* Like */}
+        <button
+          type="button"
+          className="
+            flex
+            flex-col
+            items-center
+            gap-1
+          "
+        >
+          <div className="
+            p-3
+            bg-neutral-900/50
+            backdrop-blur-md
+            rounded-full
+            border
+            border-white/10
+          ">
+            <Heart className="
+              w-6
+              h-6
+              hover:text-rose-500
+              transition
+            " />
+          </div>
+        </button>
+
+        {/* Comments */}
         <button
           type="button"
           onClick={() =>
@@ -245,21 +454,46 @@ function ReelItem({
               `/post/${video.id}`
             )
           }
-          className="flex flex-col items-center gap-1"
+          className="
+            flex
+            flex-col
+            items-center
+            gap-1
+          "
         >
-          <div className="p-3 bg-neutral-900/50 backdrop-blur-md rounded-full border border-white/10">
+          <div className="
+            p-3
+            bg-neutral-900/50
+            backdrop-blur-md
+            rounded-full
+            border
+            border-white/10
+          ">
             <MessageCircle className="w-6 h-6" />
           </div>
         </button>
 
+        {/* Share */}
         <button
           type="button"
           onClick={() =>
             void handleShare()
           }
-          className="flex flex-col items-center gap-1"
+          className="
+            flex
+            flex-col
+            items-center
+            gap-1
+          "
         >
-          <div className="p-3 bg-neutral-900/50 backdrop-blur-md rounded-full border border-white/10">
+          <div className="
+            p-3
+            bg-neutral-900/50
+            backdrop-blur-md
+            rounded-full
+            border
+            border-white/10
+          ">
             <Share2 className="w-6 h-6" />
           </div>
         </button>
