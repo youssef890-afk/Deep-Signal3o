@@ -31,7 +31,9 @@ interface Post {
   background_style?: string | null;
   media_urls?: string[];
   video_type?: 'video' | 'reel' | null;
+
   profiles?: UserProfile;
+
   likes_count: number;
   user_has_liked: boolean;
 }
@@ -41,6 +43,7 @@ interface Comment {
   content: string;
   created_at: string;
   user_id: string;
+
   profiles?: {
     username: string;
     avatar_url: string | null;
@@ -101,11 +104,25 @@ export default function FeedPage() {
   async function loadFeed() {
     if (!user) return;
 
+    /*
+     * إلا كان عندنا Cache:
+     * نخلي البيانات تبان مباشرة
+     * ونحدثها فالخلفية.
+     */
     if (!feedCache?.posts.length) {
       setLoading(true);
     }
 
     try {
+      /*
+       * أولاً:
+       * نجيب المستخدم الحالي.
+       *
+       * ثانياً:
+       * نجيب المنشورات.
+       *
+       * بجوج في نفس الوقت.
+       */
       const [
         myProfileResult,
         postsResult,
@@ -161,43 +178,22 @@ export default function FeedPage() {
 
       /*
        * ---------------------------------------
-       * إزالة المنشورات المكررة
-       * ---------------------------------------
-       *
-       * كل Post خاصو يكون عندو id unique.
-       *
-       * Map كتخلي آخر نسخة من نفس id
-       * وتمنع نفس المنشور يبان أكثر من مرة.
-       */
-      const uniquePostsData = Array.from(
-        new Map(
-          postsData
-            .filter(
-              (post) =>
-                Boolean(post?.id)
-            )
-            .map(
-              (post) => [
-                post.id,
-                post,
-              ]
-            )
-        ).values()
-      );
-
-      /*
-       * ---------------------------------------
        * جلب Profiles ديال أصحاب المنشورات
        * ---------------------------------------
+       *
+       * كنستخرج غير IDs ديال أصحاب Posts
+       * ومن بعد كنجيب Profiles باستعمال:
+       *
+       * .in('id', postUserIds)
+       *
+       * هكذا كل Post كيتربط مباشرة
+       * بالـ Profile ديال صاحبو.
        */
 
       const postUserIds = [
         ...new Set(
-          uniquePostsData
-            .map(
-              (post) =>
-                post.user_id
-            )
+          postsData
+            .map((post) => post.user_id)
             .filter(
               (id): id is string =>
                 Boolean(id)
@@ -207,51 +203,46 @@ export default function FeedPage() {
 
       let postProfiles: UserProfile[] = [];
 
-      if (
-        postUserIds.length >
-        0
-      ) {
-        const profilesResult =
-          await supabase
-            .from('profiles')
-            .select(
-              'id, username, full_name, bio, avatar_url'
-            )
-            .in(
-              'id',
-              postUserIds
-            );
+      if (postUserIds.length > 0) {
+        const profilesResult = await supabase
+          .from('profiles')
+          .select(
+            'id, username, full_name, bio, avatar_url'
+          )
+          .in(
+            'id',
+            postUserIds
+          );
 
-        if (
-          profilesResult.error
-        ) {
+        if (profilesResult.error) {
           console.error(
             'Post profiles error:',
             profilesResult.error
           );
         } else {
           postProfiles =
-            profilesResult.data ||
-            [];
+            profilesResult.data || [];
         }
       }
 
       /*
        * ---------------------------------------
-       * Profiles Map
+       * Map ديال Profiles
        * ---------------------------------------
+       *
+       * المفتاح = profile.id
+       *
+       * ومن بعد نقدر نلقاو Profile ديال
+       * كل Post باستعمال post.user_id.
        */
 
-      const profilesMap =
-        new Map<
-          string,
-          UserProfile
-        >();
+      const profilesMap = new Map<
+        string,
+        UserProfile
+      >();
 
       for (const profile of postProfiles) {
-        if (!profile?.id) {
-          continue;
-        }
+        if (!profile?.id) continue;
 
         profilesMap.set(
           profile.id,
@@ -260,7 +251,9 @@ export default function FeedPage() {
       }
 
       /*
-       * معرفة Posts اللي Profile ديالها ناقص
+       * Debug فقط:
+       * إلا كان شي Post ما عندوش Profile
+       * كنشوفو ID ديالو فالـ console.
        */
       const missingProfileIds =
         postUserIds.filter(
@@ -280,25 +273,18 @@ export default function FeedPage() {
 
       /*
        * ---------------------------------------
-       * Users للاقتراحات
+       * جلب Users للاقتراحات
        * ---------------------------------------
        */
+      const activeUsersResult = await supabase
+        .from('profiles')
+        .select(
+          'id, username, full_name, bio, avatar_url'
+        )
+        .neq('id', user.id)
+        .limit(6);
 
-      const activeUsersResult =
-        await supabase
-          .from('profiles')
-          .select(
-            'id, username, full_name, bio, avatar_url'
-          )
-          .neq(
-            'id',
-            user.id
-          )
-          .limit(6);
-
-      if (
-        activeUsersResult.error
-      ) {
+      if (activeUsersResult.error) {
         console.error(
           'Active users error:',
           activeUsersResult.error
@@ -306,23 +292,18 @@ export default function FeedPage() {
       }
 
       const otherUsers =
-        activeUsersResult.data ||
-        [];
+        activeUsersResult.data || [];
 
-      setActiveUsers(
-        otherUsers
-      );
+      setActiveUsers(otherUsers);
 
       /*
        * ---------------------------------------
        * Likes
        * ---------------------------------------
        */
-
       const postIds =
-        uniquePostsData.map(
-          (post) =>
-            post.id
+        postsData.map(
+          (post) => post.id
         );
 
       let likesData: {
@@ -330,49 +311,40 @@ export default function FeedPage() {
         user_id: string;
       }[] = [];
 
-      if (
-        postIds.length >
-        0
-      ) {
-        const likesResult =
-          await supabase
-            .from('likes')
-            .select(
-              'post_id, user_id'
-            )
-            .in(
-              'post_id',
-              postIds
-            );
+      if (postIds.length > 0) {
+        const likesResult = await supabase
+          .from('likes')
+          .select(
+            'post_id, user_id'
+          )
+          .in(
+            'post_id',
+            postIds
+          );
 
-        if (
-          likesResult.error
-        ) {
+        if (likesResult.error) {
           console.error(
             'Likes error:',
             likesResult.error
           );
         } else {
           likesData =
-            likesResult.data ||
-            [];
+            likesResult.data || [];
         }
       }
 
       /*
        * ---------------------------------------
-       * Likes Map
+       * تجميع Likes لكل Post
        * ---------------------------------------
        */
-
-      const likesMap =
-        new Map<
-          string,
-          {
-            count: number;
-            likedByCurrentUser: boolean;
-          }
-        >();
+      const likesMap = new Map<
+        string,
+        {
+          count: number;
+          likedByCurrentUser: boolean;
+        }
+      >();
 
       for (const like of likesData) {
         const existing =
@@ -380,8 +352,7 @@ export default function FeedPage() {
             like.post_id
           ) || {
             count: 0,
-            likedByCurrentUser:
-              false,
+            likedByCurrentUser: false,
           };
 
         existing.count += 1;
@@ -405,12 +376,11 @@ export default function FeedPage() {
        * تجهيز Posts
        * ---------------------------------------
        */
-
       const formattedPosts: Post[] =
-        uniquePostsData.map(
+        postsData.map(
           (post) => {
             /*
-             * الربط الحقيقي:
+             * هنا الربط الحقيقي:
              *
              * post.user_id
              *       ↓
@@ -487,6 +457,16 @@ export default function FeedPage() {
                 post.video_type ??
                 null,
 
+              /*
+               * مهم:
+               * ما نصاوبوش Profile وهمي.
+               *
+               * إذا كان Profile موجود:
+               * نستعملو.
+               *
+               * إذا ما كانش موجود:
+               * نخلي profiles undefined.
+               */
               profiles:
                 profile,
 
@@ -499,25 +479,8 @@ export default function FeedPage() {
           }
         );
 
-      /*
-       * Final safety:
-       * حتى formattedPosts ما يكونش فيه
-       * نفس Post أكثر من مرة.
-       */
-      const finalUniquePosts =
-        Array.from(
-          new Map(
-            formattedPosts.map(
-              (post) => [
-                post.id,
-                post,
-              ]
-            )
-          ).values()
-        );
-
       setPosts(
-        finalUniquePosts
+        formattedPosts
       );
 
       /*
@@ -525,7 +488,7 @@ export default function FeedPage() {
        */
       feedCache = {
         posts:
-          finalUniquePosts,
+          formattedPosts,
 
         currentUserProfile:
           myProfile,
@@ -548,7 +511,6 @@ export default function FeedPage() {
    * LIKE
    * ---------------------------------------
    */
-
   async function handleToggleLike(
     post: Post
   ) {
@@ -557,6 +519,9 @@ export default function FeedPage() {
     const previousLiked =
       post.user_has_liked;
 
+    /*
+     * UI مباشرة
+     */
     setPosts(
       (currentPosts) =>
         currentPosts.map(
@@ -627,6 +592,9 @@ export default function FeedPage() {
         error
       );
 
+      /*
+       * Rollback
+       */
       setPosts(
         (currentPosts) =>
           currentPosts.map(
@@ -665,7 +633,6 @@ export default function FeedPage() {
    * COMMENTS
    * ---------------------------------------
    */
-
   async function toggleComments(
     postId: string
   ) {
@@ -731,7 +698,6 @@ export default function FeedPage() {
    * ADD COMMENT
    * ---------------------------------------
    */
-
   async function handleAddComment(
     postId: string
   ) {
@@ -791,7 +757,6 @@ export default function FeedPage() {
    * SHARE
    * ---------------------------------------
    */
-
   async function handleShare(
     postId: string
   ) {
@@ -842,7 +807,6 @@ export default function FeedPage() {
    * TEXT BACKGROUND
    * ---------------------------------------
    */
-
   function getTextBackground(
     style?: string | null
   ) {
@@ -875,7 +839,6 @@ export default function FeedPage() {
    * POST MEDIA
    * ---------------------------------------
    */
-
   function renderPostMedia(
     post: Post
   ) {
@@ -890,9 +853,6 @@ export default function FeedPage() {
               post.video_url
             }
             controls
-            autoPlay
-            muted
-            loop
             playsInline
             preload="metadata"
             className="w-full max-h-[600px] object-contain"
@@ -999,7 +959,6 @@ export default function FeedPage() {
    * LOADING
    * ---------------------------------------
    */
-
   if (
     loading &&
     posts.length === 0
@@ -1024,9 +983,13 @@ export default function FeedPage() {
 
       <div className="max-w-md mx-auto px-4 pt-4 pb-28">
 
+        {/* ================================= */}
         {/* HEADER */}
+        {/* ================================= */}
 
         <header className="flex items-center justify-between mb-5">
+
+          {/* USER PROFILE */}
 
           <button
             type="button"
@@ -1077,7 +1040,11 @@ export default function FeedPage() {
             </div>
           </button>
 
+          {/* HEADER ACTIONS */}
+
           <div className="flex items-center gap-2">
+
+            {/* SEARCH */}
 
             <button
               type="button"
@@ -1091,6 +1058,8 @@ export default function FeedPage() {
             >
               <Search className="w-5 h-5" />
             </button>
+
+            {/* CREATE */}
 
             <button
               type="button"
@@ -1109,7 +1078,9 @@ export default function FeedPage() {
 
         </header>
 
+        {/* ================================= */}
         {/* USER SUGGESTIONS */}
+        {/* ================================= */}
 
         {activeUsers.length >
           0 && (
@@ -1200,7 +1171,9 @@ export default function FeedPage() {
           </section>
         )}
 
+        {/* ================================= */}
         {/* POSTS */}
+        {/* ================================= */}
 
         <section>
 
@@ -1566,6 +1539,9 @@ export default function FeedPage() {
             false
           );
 
+          /*
+           * تحديث Feed
+           */
           void loadFeed();
         }}
       />
