@@ -4,6 +4,7 @@ import Sidebar from '@/components/Sidebar';
 import LoginPage from '@/pages/LoginPage';
 import SignupPage from '@/pages/SignupPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
+import ResetPasswordPage from '@/pages/ResetPasswordPage';
 import FeedPage from '@/pages/FeedPage';
 import ChatPage from '@/pages/ChatPage';
 import ProfilePage from '@/pages/ProfilePage';
@@ -63,7 +64,7 @@ function MobileNav() {
           return (
             <button
               key={item.path}
-              onClick={() => navigate('/feed')} // وجه المستخدم مباشرة لمنطقة نشر فيديو/صورة
+              onClick={() => navigate('/feed')}
               className="flex flex-col items-center justify-center -mt-5"
             >
               <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-rose-500 to-pink-500 flex items-center justify-center shadow-lg shadow-rose-500/30 border-2 border-black">
@@ -113,6 +114,7 @@ function AuthGate() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
@@ -120,6 +122,7 @@ function AuthGate() {
 
   return (
     <Routes>
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/feed" element={<ProtectedLayout><FeedPage /></ProtectedLayout>} />
       <Route path="/reels" element={<ProtectedLayout><ReelsPage /></ProtectedLayout>} />
       <Route path="/search" element={<ProtectedLayout><SearchPage /></ProtectedLayout>} />
