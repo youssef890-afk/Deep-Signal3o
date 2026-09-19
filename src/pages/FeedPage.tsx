@@ -181,18 +181,23 @@ export default function FeedPage() {
        * جلب Profiles ديال أصحاب المنشورات
        * ---------------------------------------
        *
-       * بدل profiles.limit(20)
-       * كنجيبو غير IDs ديال الناس اللي عندهم
-       * منشورات ظاهرة.
+       * كنستخرج غير IDs ديال أصحاب Posts
+       * ومن بعد كنجيب Profiles باستعمال:
        *
-       * هكذا حتى الحساب رقم 100 يقدر يبان
-       * فـ Feed إلا كان عندو Post.
+       * .in('id', postUserIds)
+       *
+       * هكذا كل Post كيتربط مباشرة
+       * بالـ Profile ديال صاحبو.
        */
+
       const postUserIds = [
         ...new Set(
-          postsData.map(
-            (post) => post.user_id
-          )
+          postsData
+            .map((post) => post.user_id)
+            .filter(
+              (id): id is string =>
+                Boolean(id)
+            )
         ),
       ];
 
@@ -222,6 +227,52 @@ export default function FeedPage() {
 
       /*
        * ---------------------------------------
+       * Map ديال Profiles
+       * ---------------------------------------
+       *
+       * المفتاح = profile.id
+       *
+       * ومن بعد نقدر نلقاو Profile ديال
+       * كل Post باستعمال post.user_id.
+       */
+
+      const profilesMap = new Map<
+        string,
+        UserProfile
+      >();
+
+      for (const profile of postProfiles) {
+        if (!profile?.id) continue;
+
+        profilesMap.set(
+          profile.id,
+          profile
+        );
+      }
+
+      /*
+       * Debug فقط:
+       * إلا كان شي Post ما عندوش Profile
+       * كنشوفو ID ديالو فالـ console.
+       */
+      const missingProfileIds =
+        postUserIds.filter(
+          (id) =>
+            !profilesMap.has(id)
+        );
+
+      if (
+        missingProfileIds.length >
+        0
+      ) {
+        console.warn(
+          'Profiles not found for post user IDs:',
+          missingProfileIds
+        );
+      }
+
+      /*
+       * ---------------------------------------
        * جلب Users للاقتراحات
        * ---------------------------------------
        */
@@ -244,21 +295,6 @@ export default function FeedPage() {
         activeUsersResult.data || [];
 
       setActiveUsers(otherUsers);
-
-      /*
-       * Map ديال Profiles
-       */
-      const profilesMap = new Map<
-        string,
-        UserProfile
-      >();
-
-      for (const profile of postProfiles) {
-        profilesMap.set(
-          profile.id,
-          profile
-        );
-      }
 
       /*
        * ---------------------------------------
@@ -298,7 +334,9 @@ export default function FeedPage() {
       }
 
       /*
+       * ---------------------------------------
        * تجميع Likes لكل Post
+       * ---------------------------------------
        */
       const likesMap = new Map<
         string,
@@ -341,6 +379,15 @@ export default function FeedPage() {
       const formattedPosts: Post[] =
         postsData.map(
           (post) => {
+            /*
+             * هنا الربط الحقيقي:
+             *
+             * post.user_id
+             *       ↓
+             * profilesMap
+             *       ↓
+             * profile
+             */
             const profile =
               profilesMap.get(
                 post.user_id
@@ -364,11 +411,19 @@ export default function FeedPage() {
               )
             ) {
               mediaUrls =
-                post.media_urls;
+                post.media_urls.filter(
+                  (
+                    url
+                  ): url is string =>
+                    typeof url ===
+                      'string' &&
+                    url.length > 0
+                );
             }
 
             return {
               id: post.id,
+
               user_id:
                 post.user_id,
 
@@ -403,19 +458,17 @@ export default function FeedPage() {
                 null,
 
               /*
-               * هنا أهم إصلاح:
-               * Profile ديال صاحب Post
+               * مهم:
+               * ما نصاوبوش Profile وهمي.
+               *
+               * إذا كان Profile موجود:
+               * نستعملو.
+               *
+               * إذا ما كانش موجود:
+               * نخلي profiles undefined.
                */
               profiles:
-                profile || {
-                  id: post.user_id,
-                  username:
-                    'مستخدم',
-                  full_name: null,
-                  bio: null,
-                  avatar_url:
-                    null,
-                },
+                profile,
 
               likes_count:
                 likeInfo.count,
@@ -1495,4 +1548,4 @@ export default function FeedPage() {
 
     </div>
   );
-            }
+              }
