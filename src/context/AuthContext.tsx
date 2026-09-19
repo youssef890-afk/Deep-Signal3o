@@ -1,5 +1,11 @@
-// AuthContext.tsx - التعديل الموصى به
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  type ReactNode,
+} from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import type { Profile } from '@/types';
@@ -9,8 +15,13 @@ interface AuthContextValue {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  isPasswordRecovery: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, username: string) => Promise<{ error: string | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    username: string
+  ) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -22,6 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
   const loadProfile = useCallback(async (userId: string) => {
     try {
@@ -35,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error('Error loading profile:', error.message);
         return;
       }
+
       setProfile(data as Profile | null);
     } catch (err) {
       console.error('Network error loading profile:', err);
@@ -50,43 +63,91 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // مهلة زمنية لضمان عدم إبقاء الشاشة معلقة في حالة التحميل
     const timeout = setTimeout(() => {
-      if (mounted && loading) {
+      if (mounted) {
         setLoading(false);
       }
     }, 4000);
 
-    supabase.auth.getSession().then(({ data }) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!mounted) return;
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
-      if (data.session?.user) {
-        loadProfile(data.session.user.id).finally(() => {
-          if (mounted) setLoading(false);
-        });
-      } else {
-        setLoading(false);
-      }
-    });
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      if (!mounted) return;
       setSession(newSession);
       setUser(newSession?.user ?? null);
+
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true);
+      }
+
+      if (event === 'SIGNED_IN' && !isPasswordRecovery) {
+        setIsPasswordRecovery(false);
+      }
+
+      if (event === 'SIGNED_OUT') {
+        setIsPasswordRecovery(false);
+        setProfile(null);
+      }
+
       if (newSession?.user) {
         loadProfile(newSession.user.id);
       } else {
         setProfile(null);
       }
+
       setLoading(false);
     });
 
-    // إعادة إنعاش الجلسة عند العودة إلى التطبيق من الخلفية
+    const checkSession = async () => {
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+
+      /*
+       * إذا كان المستخدم داخل رابط Password Recovery،
+       * Supabase قد يضع recovery information في URL.
+       */
+      const hash = window.location.hash;
+      const search = window.location.search;
+
+      const hasRecoveryHash =
+        hash.includes('type=recovery') ||
+        hash.includes('access_token=') ||
+        hash.includes('refresh_token=');
+
+      const hasRecoveryQuery =
+        search.includes('type=recovery') ||
+        search.includes('token=');
+
+      if (hasRecoveryHash || hasRecoveryQuery) {
+        setIsPasswordRecovery(true);
+      }
+
+      if (currentSession?.user) {
+        loadProfile(currentSession.user.id).finally(() => {
+          if (mounted) {
+            setLoading(false);
+          }
+        });
+      } else {
+        setLoading(false);
+      }
+    };
+
+    checkSession();
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         supabase.auth.getSession().then(({ data }) => {
-          if (mounted && data.session) {
+          if (!mounted) return;
+
+          if (data.session) {
             setSession(data.session);
             setUser(data.session.user);
           }
@@ -99,47 +160,92 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
       clearTimeout(timeout);
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
-      authListener.subscription.unsubscribe();
+      window.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange
+      );
+      subscription.unsubscribe();
     };
-  }, [loadProfile]);
+  }, [loadProfile, isPasswordRecovery]);
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) return { error: error.message };
-      if (data.user) await loadProfile(data.user.id);
-      return { error: null };
-    } catch (err) {
-      return { error: 'حدث خطأ غير متوقع' };
-    }
-  }, [loadProfile]);
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      try {
+        const { data, error } =
+          await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
 
-  const signUp = useCallback(async (email: string, password: string, username: string) => {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { username } },
-      });
-      if (error) return { error: error.message };
-      if (data.user) await loadProfile(data.user.id);
-      return { error: null };
-    } catch (err) {
-      return { error: 'حدث خطأ غير متوقع' };
-    }
-  }, [loadProfile]);
+        if (error) {
+          return { error: error.message };
+        }
+
+        if (data.user) {
+          await loadProfile(data.user.id);
+        }
+
+        return { error: null };
+      } catch (err) {
+        return { error: 'حدث خطأ غير متوقع' };
+      }
+    },
+    [loadProfile]
+  );
+
+  const signUp = useCallback(
+    async (
+      email: string,
+      password: string,
+      username: string
+    ) => {
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { username },
+          },
+        });
+
+        if (error) {
+          return { error: error.message };
+        }
+
+        if (data.user) {
+          await loadProfile(data.user.id);
+        }
+
+        return { error: null };
+      } catch (err) {
+        return { error: 'حدث خطأ غير متوقع' };
+      }
+    },
+    [loadProfile]
+  );
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
+
     setProfile(null);
     setUser(null);
     setSession(null);
+    setIsPasswordRecovery(false);
   }, []);
 
   return (
     <AuthContext.Provider
-      value={{ session, user, profile, loading, signIn, signUp, signOut, refreshProfile }}
+      value={{
+        session,
+        user,
+        profile,
+        loading,
+        isPasswordRecovery,
+        signIn,
+        signUp,
+        signOut,
+        refreshProfile,
+      }}
     >
       {children}
     </AuthContext.Provider>
@@ -148,7 +254,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+
+  if (!ctx) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+
   return ctx;
 }
-
