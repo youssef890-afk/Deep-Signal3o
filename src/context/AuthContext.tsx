@@ -69,6 +69,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }, 4000);
 
+    const checkSession = async () => {
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+
+      const hash = window.location.hash;
+      const search = window.location.search;
+
+      const hasRecoveryUrl =
+        hash.includes('type=recovery') ||
+        hash.includes('access_token=') ||
+        hash.includes('refresh_token=') ||
+        search.includes('type=recovery');
+
+      if (hasRecoveryUrl) {
+        setIsPasswordRecovery(true);
+      }
+
+      if (currentSession?.user) {
+        await loadProfile(currentSession.user.id);
+      }
+
+      if (mounted) {
+        setLoading(false);
+      }
+    };
+
+    checkSession();
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, newSession) => {
@@ -79,10 +113,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (event === 'PASSWORD_RECOVERY') {
         setIsPasswordRecovery(true);
-      }
-
-      if (event === 'SIGNED_IN' && !isPasswordRecovery) {
-        setIsPasswordRecovery(false);
       }
 
       if (event === 'SIGNED_OUT') {
@@ -98,49 +128,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setLoading(false);
     });
-
-    const checkSession = async () => {
-      const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
-
-      if (!mounted) return;
-
-      setSession(currentSession);
-      setUser(currentSession?.user ?? null);
-
-      /*
-       * إذا كان المستخدم داخل رابط Password Recovery،
-       * Supabase قد يضع recovery information في URL.
-       */
-      const hash = window.location.hash;
-      const search = window.location.search;
-
-      const hasRecoveryHash =
-        hash.includes('type=recovery') ||
-        hash.includes('access_token=') ||
-        hash.includes('refresh_token=');
-
-      const hasRecoveryQuery =
-        search.includes('type=recovery') ||
-        search.includes('token=');
-
-      if (hasRecoveryHash || hasRecoveryQuery) {
-        setIsPasswordRecovery(true);
-      }
-
-      if (currentSession?.user) {
-        loadProfile(currentSession.user.id).finally(() => {
-          if (mounted) {
-            setLoading(false);
-          }
-        });
-      } else {
-        setLoading(false);
-      }
-    };
-
-    checkSession();
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -166,7 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
       subscription.unsubscribe();
     };
-  }, [loadProfile, isPasswordRecovery]);
+  }, [loadProfile]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
