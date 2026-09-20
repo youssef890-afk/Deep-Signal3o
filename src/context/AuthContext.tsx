@@ -28,18 +28,34 @@ interface AuthContextValue {
     username: string
   ) => Promise<{ error: string | null }>;
 
+  verifyEmailOtp: (
+    email: string,
+    token: string
+  ) => Promise<{ error: string | null }>;
+
+  resendVerificationCode: (
+    email: string
+  ) => Promise<{ error: string | null }>;
+
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+const AuthContext = createContext<AuthContextValue | undefined>(
+  undefined
+);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [isPasswordRecovery, setIsPasswordRecovery] =
+    useState(false);
 
   const loadProfile = useCallback(async (userId: string) => {
     try {
@@ -50,13 +66,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .maybeSingle();
 
       if (error) {
-        console.error('Error loading profile:', error.message);
+        console.error(
+          'Error loading profile:',
+          error.message
+        );
         return;
       }
 
       setProfile(data as Profile | null);
     } catch (error) {
-      console.error('Unexpected profile error:', error);
+      console.error(
+        'Unexpected profile error:',
+        error
+      );
     }
   }, []);
 
@@ -79,7 +101,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!mounted) return;
 
         if (error) {
-          console.error('Session error:', error.message);
+          console.error(
+            'Session error:',
+            error.message
+          );
         }
 
         setSession(currentSession);
@@ -102,7 +127,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfile(null);
         }
       } catch (error) {
-        console.error('Auth initialization error:', error);
+        console.error(
+          'Auth initialization error:',
+          error
+        );
       } finally {
         if (mounted) {
           setLoading(false);
@@ -114,45 +142,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, newSession) => {
-      if (!mounted) return;
+    } = supabase.auth.onAuthStateChange(
+      (event, newSession) => {
+        if (!mounted) return;
 
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
 
-      if (event === 'PASSWORD_RECOVERY') {
-        setIsPasswordRecovery(true);
+        if (event === 'PASSWORD_RECOVERY') {
+          setIsPasswordRecovery(true);
+        }
+
+        if (event === 'SIGNED_OUT') {
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          setIsPasswordRecovery(false);
+          setLoading(false);
+          return;
+        }
+
+        if (newSession?.user) {
+          setLoading(true);
+
+          void loadProfile(newSession.user.id).finally(
+            () => {
+              if (mounted) {
+                setLoading(false);
+              }
+            }
+          );
+        } else {
+          setProfile(null);
+          setLoading(false);
+        }
       }
-
-      if (event === 'SIGNED_OUT') {
-        setSession(null);
-        setUser(null);
-        setProfile(null);
-        setIsPasswordRecovery(false);
-        setLoading(false);
-        return;
-      }
-
-      if (newSession?.user) {
-        setLoading(true);
-
-        /*
-         * مهم:
-         * ما نستعملوش await هنا.
-         *
-         * Supabase Auth callback خاصو يبقى خفيف
-         * وما خاصوش يتعطل بعملية Database.
-         */
-        void loadProfile(newSession.user.id).finally(() => {
-          if (mounted) {
-            setLoading(false);
-          }
-        });
-      } else {
-        setProfile(null);
-        setLoading(false);
-      }
-    });
+    );
 
     return () => {
       mounted = false;
@@ -160,6 +185,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [loadProfile]);
 
+  /*
+   * ============================
+   * LOGIN
+   * ============================
+   */
   const signIn = useCallback(
     async (email: string, password: string) => {
       try {
@@ -171,30 +201,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           };
         }
 
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: cleanEmail,
-          password,
-        });
+        const { data, error } =
+          await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password,
+          });
 
         if (error) {
-          const message = error.message.toLowerCase();
+          const message =
+            error.message.toLowerCase();
 
           if (
-            message.includes('email not confirmed') ||
-            message.includes('email_not_confirmed')
+            message.includes(
+              'email not confirmed'
+            ) ||
+            message.includes(
+              'email_not_confirmed'
+            )
           ) {
             return {
               error:
-                'الإيميل مازال ما تأكدش. تحقق من الإيميل ديالك ثم حاول تسجيل الدخول من جديد.',
+                'الإيميل مازال ما تأكدش. دخل رمز التحقق اللي توصلك فالإيميل.',
             };
           }
 
           if (
-            message.includes('invalid login credentials') ||
-            message.includes('invalid credentials')
+            message.includes(
+              'invalid login credentials'
+            ) ||
+            message.includes(
+              'invalid credentials'
+            )
           ) {
             return {
-              error: 'الإيميل أو الباسورد غير صحيح.',
+              error:
+                'الإيميل أو الباسورد غير صحيح.',
             };
           }
 
@@ -206,33 +247,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!data.session || !data.user) {
           return {
             error:
-              'ما قدرناش نفتح Session. إذا كان Email Confirmation شاعل، خاصك تأكد الإيميل أولاً.',
+              'ما قدرناش نفتح Session.',
           };
         }
 
         setSession(data.session);
         setUser(data.user);
 
-        /*
-         * ما نخليش تسجيل الدخول يتعطل بسبب تحميل Profile.
-         * Profile غادي يتحمل بشكل مستقل.
-         */
         void loadProfile(data.user.id);
 
         return {
           error: null,
         };
       } catch (error) {
-        console.error('Sign in error:', error);
+        console.error(
+          'Sign in error:',
+          error
+        );
 
         return {
-          error: 'وقع خطأ غير متوقع أثناء تسجيل الدخول.',
+          error:
+            'وقع خطأ غير متوقع أثناء تسجيل الدخول.',
         };
       }
     },
     [loadProfile]
   );
 
+  /*
+   * ============================
+   * SIGN UP
+   * ============================
+   *
+   * هنا Supabase كينشئ الحساب
+   * ويرسل OTP للإيميل.
+   *
+   * ما كنعتابروش المستخدم Logged In
+   * حتى يدخل OTP الصحيح.
+   */
   const signUp = useCallback(
     async (
       email: string,
@@ -257,35 +309,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (cleanUsername.length < 3) {
           return {
-            error: 'Username خاصو يكون على الأقل 3 حروف.',
+            error:
+              'Username خاصو يكون على الأقل 3 حروف.',
           };
         }
 
         if (password.length < 6) {
           return {
-            error: 'الباسورد خاصو يكون على الأقل 6 حروف.',
+            error:
+              'الباسورد خاصو يكون على الأقل 6 حروف.',
           };
         }
 
-        const { data, error } = await supabase.auth.signUp({
-          email: cleanEmail,
-          password,
-          options: {
-            data: {
-              username: cleanUsername,
+        const { data, error } =
+          await supabase.auth.signUp({
+            email: cleanEmail,
+            password,
+            options: {
+              data: {
+                username: cleanUsername,
+              },
             },
-          },
-        });
+          });
 
         if (error) {
-          const message = error.message.toLowerCase();
+          const message =
+            error.message.toLowerCase();
 
           if (
-            message.includes('user already registered') ||
-            message.includes('already registered')
+            message.includes(
+              'user already registered'
+            ) ||
+            message.includes(
+              'already registered'
+            )
           ) {
             return {
-              error: 'هاد الإيميل مسجل من قبل.',
+              error:
+                'هاد الإيميل مسجل من قبل.',
+            };
+          }
+
+          if (
+            message.includes(
+              'email rate limit exceeded'
+            )
+          ) {
+            return {
+              error:
+                'تم تجاوز الحد المؤقت لإرسال أكواد الإيميل. تسنى شوية وحاول من بعد.',
             };
           }
 
@@ -301,13 +373,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         /*
-         * Email Confirmation شاعل:
+         * Email confirmation شغال.
          *
-         * Supabase كيرجع user
-         * ولكن session = null.
-         *
-         * مهم جداً:
-         * ما نعتابروش المستخدم Logged In.
+         * Supabase غالباً كيرجع User
+         * بلا Session حتى يدخل المستخدم OTP.
          */
         if (data.user && !data.session) {
           setSession(null);
@@ -315,14 +384,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfile(null);
 
           return {
-            error:
-              'تم إنشاء الحساب بنجاح. تحقق من الإيميل ديالك من فضلك، ومن بعد رجع وسجل الدخول.',
+            error: null,
           };
         }
 
         /*
-         * Email Confirmation مطفي:
-         * Supabase كيعطي Session مباشرة.
+         * إذا كان Confirmation مطفي
+         * ودخلنا مباشرة Session.
          */
         if (data.user && data.session) {
           setSession(data.session);
@@ -336,24 +404,196 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         return {
-          error: 'ما قدرناش نكملو إنشاء الحساب.',
+          error:
+            'ما قدرناش نكملو إنشاء الحساب.',
         };
       } catch (error) {
-        console.error('Sign up error:', error);
+        console.error(
+          'Sign up error:',
+          error
+        );
 
         return {
-          error: 'وقع خطأ غير متوقع أثناء إنشاء الحساب.',
+          error:
+            'وقع خطأ غير متوقع أثناء إنشاء الحساب.',
         };
       }
     },
     [loadProfile]
   );
 
+  /*
+   * ============================
+   * VERIFY OTP
+   * ============================
+   */
+  const verifyEmailOtp = useCallback(
+    async (
+      email: string,
+      token: string
+    ) => {
+      try {
+        const cleanEmail = email.trim();
+        const cleanToken = token.trim();
+
+        if (!cleanEmail) {
+          return {
+            error: 'الإيميل مفقود.',
+          };
+        }
+
+        if (!cleanToken) {
+          return {
+            error:
+              'دخل رمز التحقق.',
+          };
+        }
+
+        if (!/^\d{6}$/.test(cleanToken)) {
+          return {
+            error:
+              'رمز التحقق خاصو يكون 6 أرقام.',
+          };
+        }
+
+        const { data, error } =
+          await supabase.auth.verifyOtp({
+            email: cleanEmail,
+            token: cleanToken,
+            type: 'signup',
+          });
+
+        if (error) {
+          const message =
+            error.message.toLowerCase();
+
+          if (
+            message.includes(
+              'invalid token'
+            ) ||
+            message.includes(
+              'token has expired'
+            ) ||
+            message.includes(
+              'otp'
+            )
+          ) {
+            return {
+              error:
+                'رمز التحقق غير صحيح أو انتهت صلاحيته.',
+            };
+          }
+
+          return {
+            error: error.message,
+          };
+        }
+
+        if (!data.session || !data.user) {
+          return {
+            error:
+              'تم التحقق ولكن ما قدرناش نفتح Session.',
+          };
+        }
+
+        /*
+         * OTP صحيح:
+         * دابا فقط المستخدم ولى authenticated.
+         */
+        setSession(data.session);
+        setUser(data.user);
+
+        void loadProfile(data.user.id);
+
+        return {
+          error: null,
+        };
+      } catch (error) {
+        console.error(
+          'Verify OTP error:',
+          error
+        );
+
+        return {
+          error:
+            'وقع خطأ أثناء التحقق من الرمز.',
+        };
+      }
+    },
+    [loadProfile]
+  );
+
+  /*
+   * ============================
+   * RESEND OTP
+   * ============================
+   */
+  const resendVerificationCode =
+    useCallback(async (email: string) => {
+      try {
+        const cleanEmail = email.trim();
+
+        if (!cleanEmail) {
+          return {
+            error: 'الإيميل مفقود.',
+          };
+        }
+
+        const { error } =
+          await supabase.auth.resend({
+            type: 'signup',
+            email: cleanEmail,
+          });
+
+        if (error) {
+          const message =
+            error.message.toLowerCase();
+
+          if (
+            message.includes(
+              'email rate limit exceeded'
+            )
+          ) {
+            return {
+              error:
+                'تم تجاوز الحد المؤقت للإرسال. تسنى شوية قبل ما تطلب كود جديد.',
+            };
+          }
+
+          return {
+            error: error.message,
+          };
+        }
+
+        return {
+          error: null,
+        };
+      } catch (error) {
+        console.error(
+          'Resend OTP error:',
+          error
+        );
+
+        return {
+          error:
+            'ما قدرناش نعاودو نرسلو الكود.',
+        };
+      }
+    }, []);
+
+  /*
+   * ============================
+   * LOGOUT
+   * ============================
+   */
   const signOut = useCallback(async () => {
     try {
       await supabase.auth.signOut();
     } catch (error) {
-      console.error('Sign out error:', error);
+      console.error(
+        'Sign out error:',
+        error
+      );
     }
 
     setProfile(null);
@@ -373,6 +613,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isPasswordRecovery,
         signIn,
         signUp,
+        verifyEmailOtp,
+        resendVerificationCode,
         signOut,
         refreshProfile,
       }}
@@ -392,4 +634,4 @@ export function useAuth() {
   }
 
   return context;
-}
+    }
