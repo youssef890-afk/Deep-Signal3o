@@ -10,6 +10,8 @@ import {
   Loader2,
   Signal,
   CheckCircle,
+  MousePointerClick,
+  ArrowRight,
 } from 'lucide-react';
 
 export default function SignupPage() {
@@ -65,10 +67,6 @@ export default function SignupPage() {
     setLoading(false);
 
     if (result.error) {
-      /*
-       * إذا كان الحساب تخلق ولكن Email Confirmation
-       * شاعل، AuthContext غادي يرجع رسالة نجاح خاصة.
-       */
       if (
         result.error.includes(
           'تم إنشاء الحساب بنجاح'
@@ -82,10 +80,6 @@ export default function SignupPage() {
       return;
     }
 
-    /*
-     * Email Confirmation مطفي:
-     * الحساب دخل مباشرة.
-     */
     navigate('/feed', { replace: true });
   };
 
@@ -93,6 +87,7 @@ export default function SignupPage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden bg-black text-white">
 
+        {/* Background */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-[-20%] right-[10%] w-[500px] h-[500px] bg-rose-500/10 rounded-full blur-[120px]" />
 
@@ -105,34 +100,96 @@ export default function SignupPage() {
 
             <div className="flex flex-col items-center text-center">
 
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center mb-5 shadow-lg shadow-green-500/20">
-                <CheckCircle className="w-9 h-9 text-white" />
+              {/* Email Verification Illustration */}
+              <div className="relative w-32 h-32 mb-6">
+
+                {/* Glow */}
+                <div className="absolute inset-0 bg-rose-500/10 rounded-full blur-2xl" />
+
+                {/* Email card */}
+                <div className="absolute left-2 top-4 w-24 h-20 rounded-2xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-500 p-[2px] shadow-xl shadow-rose-500/20 rotate-[-4deg]">
+
+                  <div className="w-full h-full rounded-[14px] bg-neutral-900 flex items-center justify-center">
+
+                    <Mail
+                      className="w-11 h-11 text-white"
+                      strokeWidth={1.8}
+                    />
+
+                  </div>
+
+                </div>
+
+                {/* Verification check */}
+                <div className="absolute right-0 top-0 w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/30 border-4 border-neutral-900">
+
+                  <CheckCircle
+                    className="w-5 h-5 text-white"
+                    strokeWidth={2.5}
+                  />
+
+                </div>
+
+                {/* Click icon */}
+                <div className="absolute right-0 bottom-1 w-11 h-11 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center animate-pulse">
+
+                  <MousePointerClick
+                    className="w-6 h-6 text-amber-400"
+                    strokeWidth={2}
+                  />
+
+                </div>
+
               </div>
 
               <h1 className="text-2xl font-bold">
-                تحقق من الإيميل
+                تحقق من بريدك الإلكتروني
               </h1>
 
-              <p className="text-neutral-400 text-sm mt-3 leading-6">
-                الحساب ديالك تخلق بنجاح.
+              <p className="text-neutral-300 text-sm mt-4 leading-7">
+                قم بالتحقق عبر الضغط على الرابط
                 <br />
-                صيفطنا ليك رسالة فالإيميل:
+                الذي أرسلناه إلى بريدك الإلكتروني
+                <br />
+                للتحقق من حسابك.
               </p>
 
-              <p className="text-white font-bold mt-2 break-all">
-                {email}
-              </p>
+              {/* Email */}
+              <div className="w-full mt-5 px-4 py-3 rounded-xl bg-white/5 border border-white/10">
 
-              <p className="text-xs text-neutral-500 mt-4">
-                شوف حتى Spam / Junk إلا ما بانش ليك
-                الإيميل.
-              </p>
+                <div className="flex items-center justify-center gap-2">
 
+                  <Mail className="w-4 h-4 text-rose-400 shrink-0" />
+
+                  <p className="text-white font-medium text-sm break-all">
+                    {email}
+                  </p>
+
+                </div>
+
+              </div>
+
+              {/* Hint */}
+              <div className="mt-5 flex items-start gap-2 text-xs text-neutral-500 text-left">
+
+                <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+
+                <p className="leading-5">
+                  افتح بريدك الإلكتروني واضغط على
+                  رابط التحقق لإكمال إنشاء الحساب.
+                  إذا ما لقيتيش الرسالة، شوف Spam / Junk.
+                </p>
+
+              </div>
+
+              {/* Login button */}
               <Link
                 to="/login"
-                className="w-full mt-6 flex items-center justify-center bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 text-white font-semibold py-3.5 rounded-xl hover:opacity-90 transition-all"
+                className="w-full mt-7 flex items-center justify-center gap-2 bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 text-white font-semibold py-3.5 rounded-xl hover:opacity-90 transition-all shadow-lg shadow-rose-500/20"
               >
-                مشي لتسجيل الدخول
+                <span>مشي لتسجيل الدخول</span>
+
+                <ArrowRight className="w-4 h-4" />
               </Link>
 
             </div>
