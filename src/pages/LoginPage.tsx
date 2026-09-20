@@ -17,41 +17,45 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
   const [showPassword, setShowPassword] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
-  // تسجيل الدخول بواسطة Email + Password
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     setError(null);
     setLoading(true);
 
-    const { error } = await signIn(email.trim(), password);
+    const result = await signIn(
+      email.trim(),
+      password
+    );
 
     setLoading(false);
 
-    if (error) {
-      setError(error);
+    if (result.error) {
+      setError(result.error);
       return;
     }
 
-    navigate('/feed');
+    navigate('/feed', { replace: true });
   };
 
-  // تسجيل الدخول بواسطة Google
   const handleGoogleLogin = async () => {
     setError(null);
     setGoogleLoading(true);
 
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/feed`,
-      },
-    });
+    const { error } =
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/feed`,
+        },
+      });
 
     if (error) {
       setGoogleLoading(false);
@@ -62,7 +66,6 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden bg-black text-white">
 
-      {/* Background glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-20%] left-[10%] w-[500px] h-[500px] bg-rose-500/10 rounded-full blur-[120px]" />
 
@@ -73,7 +76,6 @@ export default function LoginPage() {
 
         <div className="glass rounded-3xl p-8 shadow-2xl bg-neutral-900/80 border border-white/10">
 
-          {/* Logo */}
           <div className="flex flex-col items-center mb-8">
 
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-500 flex items-center justify-center mb-4 shadow-lg shadow-rose-500/20">
@@ -93,11 +95,13 @@ export default function LoginPage() {
 
           </div>
 
-          {/* Email + Password */}
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form
+            onSubmit={handleSubmit}
+            className="space-y-5"
+          >
 
-            {/* Email */}
             <div>
+
               <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider mb-2 block">
                 Email
               </label>
@@ -110,15 +114,18 @@ export default function LoginPage() {
                   type="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) =>
+                    setEmail(e.target.value)
+                  }
                   placeholder="you@example.com"
+                  autoComplete="email"
                   className="w-full bg-neutral-900/80 border border-white/10 rounded-xl pl-12 pr-4 py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 focus:ring-2 focus:ring-rose-500/20 transition-all"
                 />
 
               </div>
+
             </div>
 
-            {/* Password */}
             <div>
 
               <div className="flex justify-between items-center mb-2">
@@ -141,17 +148,26 @@ export default function LoginPage() {
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
 
                 <input
-                  type={showPassword ? 'text' : 'password'}
+                  type={
+                    showPassword
+                      ? 'text'
+                      : 'password'
+                  }
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) =>
+                    setPassword(e.target.value)
+                  }
                   placeholder="Enter your password"
+                  autoComplete="current-password"
                   className="w-full bg-neutral-900/80 border border-white/10 rounded-xl pl-12 pr-12 py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 focus:ring-2 focus:ring-rose-500/20 transition-all"
                 />
 
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() =>
+                    setShowPassword(!showPassword)
+                  }
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white transition-colors"
                 >
                   {showPassword ? (
@@ -162,19 +178,20 @@ export default function LoginPage() {
                 </button>
 
               </div>
+
             </div>
 
-            {/* Error */}
             {error && (
               <div className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 animate-fade-in">
                 {error}
               </div>
             )}
 
-            {/* Sign In */}
             <button
               type="submit"
-              disabled={loading || googleLoading}
+              disabled={
+                loading || googleLoading
+              }
               className="w-full bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 text-white font-semibold py-3.5 rounded-xl hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-rose-500/20"
             >
               {loading ? (
@@ -186,7 +203,6 @@ export default function LoginPage() {
 
           </form>
 
-          {/* Divider */}
           <div className="relative my-6">
 
             <div className="absolute inset-0 flex items-center">
@@ -201,11 +217,14 @@ export default function LoginPage() {
 
           </div>
 
-          {/* Google Login */}
           <button
             type="button"
-            onClick={() => void handleGoogleLogin()}
-            disabled={googleLoading || loading}
+            onClick={() =>
+              void handleGoogleLogin()
+            }
+            disabled={
+              googleLoading || loading
+            }
             className="w-full bg-white text-black font-semibold py-3.5 rounded-xl hover:bg-neutral-200 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
           >
 
@@ -213,7 +232,9 @@ export default function LoginPage() {
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : (
               <>
-                <span className="text-lg font-bold">G</span>
+                <span className="text-lg font-bold">
+                  G
+                </span>
 
                 <span>
                   متابعة باستخدام Google
@@ -223,10 +244,9 @@ export default function LoginPage() {
 
           </button>
 
-          {/* Sign Up */}
           <div className="mt-6 text-center text-sm text-neutral-400">
 
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
 
             <Link
               to="/signup"
@@ -238,7 +258,9 @@ export default function LoginPage() {
           </div>
 
         </div>
+
       </div>
+
     </div>
   );
 }
