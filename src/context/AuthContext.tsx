@@ -90,8 +90,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const isRecoveryUrl =
           hash.includes('type=recovery') ||
-          hash.includes('access_token=') ||
-          hash.includes('refresh_token=') ||
           search.includes('type=recovery');
 
         if (isRecoveryUrl) {
@@ -100,6 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (currentSession?.user) {
           await loadProfile(currentSession.user.id);
+        } else {
+          setProfile(null);
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!mounted) return;
 
       setSession(newSession);
@@ -136,11 +136,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (newSession?.user) {
         setLoading(true);
 
-        await loadProfile(newSession.user.id);
-
-        if (mounted) {
-          setLoading(false);
-        }
+        /*
+         * مهم:
+         * ما نستعملوش await هنا.
+         *
+         * Supabase Auth callback خاصو يبقى خفيف
+         * وما خاصوش يتعطل بعملية Database.
+         */
+        void loadProfile(newSession.user.id).finally(() => {
+          if (mounted) {
+            setLoading(false);
+          }
+        });
       } else {
         setProfile(null);
         setLoading(false);
@@ -196,7 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           };
         }
 
-        if (!data.session) {
+        if (!data.session || !data.user) {
           return {
             error:
               'ما قدرناش نفتح Session. إذا كان Email Confirmation شاعل، خاصك تأكد الإيميل أولاً.',
@@ -206,7 +213,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(data.session);
         setUser(data.user);
 
-        await loadProfile(data.user.id);
+        /*
+         * ما نخليش تسجيل الدخول يتعطل بسبب تحميل Profile.
+         * Profile غادي يتحمل بشكل مستقل.
+         */
+        void loadProfile(data.user.id);
 
         return {
           error: null,
@@ -244,6 +255,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           };
         }
 
+        if (cleanUsername.length < 3) {
+          return {
+            error: 'Username خاصو يكون على الأقل 3 حروف.',
+          };
+        }
+
         if (password.length < 6) {
           return {
             error: 'الباسورد خاصو يكون على الأقل 6 حروف.',
@@ -263,7 +280,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (error) {
           const message = error.message.toLowerCase();
 
-          if (message.includes('user already registered')) {
+          if (
+            message.includes('user already registered') ||
+            message.includes('already registered')
+          ) {
             return {
               error: 'هاد الإيميل مسجل من قبل.',
             };
@@ -281,17 +301,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         /*
-         * الحالة المهمة:
+         * Email Confirmation شاعل:
          *
-         * data.user موجود
-         * ولكن data.session = null
+         * Supabase كيرجع user
+         * ولكن session = null.
          *
-         * هادي كتوقع غالباً ملي Email Confirmation شاعل.
+         * مهم جداً:
+         * ما نعتابروش المستخدم Logged In.
          */
-
         if (data.user && !data.session) {
-          setUser(data.user);
           setSession(null);
+          setUser(null);
+          setProfile(null);
 
           return {
             error:
@@ -301,14 +322,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         /*
          * Email Confirmation مطفي:
-         * Supabase كيعطينا session مباشرة.
+         * Supabase كيعطي Session مباشرة.
          */
-
         if (data.user && data.session) {
           setSession(data.session);
           setUser(data.user);
 
-          await loadProfile(data.user.id);
+          void loadProfile(data.user.id);
 
           return {
             error: null,
@@ -340,6 +360,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setSession(null);
     setIsPasswordRecovery(false);
+    setLoading(false);
   }, []);
 
   return (
