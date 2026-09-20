@@ -1,116 +1,285 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { Mail, Lock, User, Eye, EyeOff, Loader2, Signal } from 'lucide-react';
+import {
+  Mail,
+  Lock,
+  User,
+  Eye,
+  EyeOff,
+  Loader2,
+  Signal,
+  CheckCircle,
+} from 'lucide-react';
 
 export default function SignupPage() {
   const { signUp } = useAuth();
   const navigate = useNavigate();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  const [showPassword, setShowPassword] =
+    useState(false);
+
+  const [error, setError] = useState<string | null>(
+    null
+  );
+
+  const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (
+    e: React.FormEvent
+  ) => {
     e.preventDefault();
+
     setError(null);
-    if (username.trim().length < 3) {
-      setError('Username must be at least 3 characters');
+
+    const cleanUsername = username.trim();
+    const cleanEmail = email.trim();
+
+    if (cleanUsername.length < 3) {
+      setError(
+        'Username خاصو يكون على الأقل 3 حروف.'
+      );
       return;
     }
+
     if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+      setError(
+        'Password خاصو يكون على الأقل 6 حروف.'
+      );
       return;
     }
+
     setLoading(true);
-    const { error } = await signUp(email.trim(), password, username.trim());
+
+    const result = await signUp(
+      cleanEmail,
+      password,
+      cleanUsername
+    );
+
     setLoading(false);
-    if (error) {
-      setError(error);
-    } else {
-      navigate('/feed');
+
+    if (result.error) {
+      /*
+       * إذا كان الحساب تخلق ولكن Email Confirmation
+       * شاعل، AuthContext غادي يرجع رسالة نجاح خاصة.
+       */
+      if (
+        result.error.includes(
+          'تم إنشاء الحساب بنجاح'
+        )
+      ) {
+        setSuccess(true);
+        return;
+      }
+
+      setError(result.error);
+      return;
     }
+
+    /*
+     * Email Confirmation مطفي:
+     * الحساب دخل مباشرة.
+     */
+    navigate('/feed', { replace: true });
   };
 
+  if (success) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden bg-black text-white">
+
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-[-20%] right-[10%] w-[500px] h-[500px] bg-rose-500/10 rounded-full blur-[120px]" />
+
+          <div className="absolute bottom-[-20%] left-[10%] w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[120px]" />
+        </div>
+
+        <div className="w-full max-w-md relative z-10">
+
+          <div className="glass rounded-3xl p-8 shadow-2xl bg-neutral-900/80 border border-white/10">
+
+            <div className="flex flex-col items-center text-center">
+
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center mb-5 shadow-lg shadow-green-500/20">
+                <CheckCircle className="w-9 h-9 text-white" />
+              </div>
+
+              <h1 className="text-2xl font-bold">
+                تحقق من الإيميل
+              </h1>
+
+              <p className="text-neutral-400 text-sm mt-3 leading-6">
+                الحساب ديالك تخلق بنجاح.
+                <br />
+                صيفطنا ليك رسالة فالإيميل:
+              </p>
+
+              <p className="text-white font-bold mt-2 break-all">
+                {email}
+              </p>
+
+              <p className="text-xs text-neutral-500 mt-4">
+                شوف حتى Spam / Junk إلا ما بانش ليك
+                الإيميل.
+              </p>
+
+              <Link
+                to="/login"
+                className="w-full mt-6 flex items-center justify-center bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 text-white font-semibold py-3.5 rounded-xl hover:opacity-90 transition-all"
+              >
+                مشي لتسجيل الدخول
+              </Link>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden bg-black text-white">
+
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
+
         <div className="absolute top-[-20%] right-[10%] w-[500px] h-[500px] bg-rose-500/10 rounded-full blur-[120px]" />
+
         <div className="absolute bottom-[-20%] left-[10%] w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[120px]" />
+
       </div>
 
       <div className="w-full max-w-md animate-slide-up relative z-10">
-        <div className="glass rounded-3xl p-8 shadow-2xl">
+
+        <div className="glass rounded-3xl p-8 shadow-2xl bg-neutral-900/80 border border-white/10">
+
           <div className="flex flex-col items-center mb-8">
+
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-500 flex items-center justify-center mb-4 shadow-lg shadow-rose-500/20">
-              <Signal className="w-8 h-8 text-white" strokeWidth={2.5} />
+
+              <Signal
+                className="w-8 h-8 text-white"
+                strokeWidth={2.5}
+              />
+
             </div>
-            <h1 className="text-3xl font-bold gradient-text">Join Deep Signal</h1>
-            <p className="text-neutral-400 text-sm mt-2">Create your account and start sharing.</p>
+
+            <h1 className="text-3xl font-bold gradient-text">
+              Join Deep Signal
+            </h1>
+
+            <p className="text-neutral-400 text-sm mt-2">
+              Create your account and start sharing.
+            </p>
+
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Username */}
+          <form
+            onSubmit={handleSubmit}
+            className="space-y-5"
+          >
+
             <div>
+
               <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider mb-2 block">
                 Username
               </label>
+
               <div className="relative">
+
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
+
                 <input
                   type="text"
                   required
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) =>
+                    setUsername(e.target.value)
+                  }
                   placeholder="your_username"
+                  autoComplete="username"
                   className="w-full bg-neutral-900/80 border border-white/10 rounded-xl pl-12 pr-4 py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 focus:ring-2 focus:ring-rose-500/20 transition-all"
                 />
+
               </div>
+
             </div>
 
-            {/* Email */}
             <div>
+
               <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider mb-2 block">
                 Email
               </label>
+
               <div className="relative">
+
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
+
                 <input
                   type="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) =>
+                    setEmail(e.target.value)
+                  }
                   placeholder="you@example.com"
+                  autoComplete="email"
                   className="w-full bg-neutral-900/80 border border-white/10 rounded-xl pl-12 pr-4 py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 focus:ring-2 focus:ring-rose-500/20 transition-all"
                 />
+
               </div>
+
             </div>
 
-            {/* Password */}
             <div>
+
               <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider mb-2 block">
                 Password
               </label>
+
               <div className="relative">
+
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
+
                 <input
-                  type={showPassword ? 'text' : 'password'}
+                  type={
+                    showPassword
+                      ? 'text'
+                      : 'password'
+                  }
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) =>
+                    setPassword(e.target.value)
+                  }
                   placeholder="At least 6 characters"
+                  autoComplete="new-password"
                   className="w-full bg-neutral-900/80 border border-white/10 rounded-xl pl-12 pr-12 py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 focus:ring-2 focus:ring-rose-500/20 transition-all"
                 />
+
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() =>
+                    setShowPassword(!showPassword)
+                  }
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white transition-colors"
                 >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  {showPassword ? (
+                    <EyeOff className="w-5 h-5" />
+                  ) : (
+                    <Eye className="w-5 h-5" />
+                  )}
                 </button>
+
               </div>
+
             </div>
 
             {error && (
@@ -124,18 +293,32 @@ export default function SignupPage() {
               disabled={loading}
               className="w-full bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 text-white font-semibold py-3.5 rounded-xl hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-rose-500/20"
             >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Create Account'}
+              {loading ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                'Create Account'
+              )}
             </button>
+
           </form>
 
           <div className="mt-6 text-center text-sm text-neutral-400">
+
             Already have an account?{' '}
-            <Link to="/login" className="text-rose-400 hover:text-rose-300 font-medium transition-colors">
+
+            <Link
+              to="/login"
+              className="text-rose-400 hover:text-rose-300 font-medium transition-colors"
+            >
               Sign in
             </Link>
+
           </div>
+
         </div>
+
       </div>
+
     </div>
   );
 }
