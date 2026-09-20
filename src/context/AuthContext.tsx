@@ -16,12 +16,18 @@ interface AuthContextValue {
   profile: Profile | null;
   loading: boolean;
   isPasswordRecovery: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+
+  signIn: (
+    email: string,
+    password: string
+  ) => Promise<{ error: string | null }>;
+
   signUp: (
     email: string,
     password: string,
     username: string
   ) => Promise<{ error: string | null }>;
+
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -49,63 +55,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setProfile(data as Profile | null);
-    } catch (err) {
-      console.error('Network error loading profile:', err);
+    } catch (error) {
+      console.error('Unexpected profile error:', error);
     }
   }, []);
 
   const refreshProfile = useCallback(async () => {
-    if (user) {
-      await loadProfile(user.id);
-    }
+    if (!user) return;
+
+    await loadProfile(user.id);
   }, [user, loadProfile]);
 
   useEffect(() => {
     let mounted = true;
 
-    const timeout = setTimeout(() => {
-      if (mounted) {
-        setLoading(false);
-      }
-    }, 4000);
+    const initializeAuth = async () => {
+      try {
+        const {
+          data: { session: currentSession },
+          error,
+        } = await supabase.auth.getSession();
 
-    const checkSession = async () => {
-      const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
+        if (!mounted) return;
 
-      if (!mounted) return;
+        if (error) {
+          console.error('Session error:', error.message);
+        }
 
-      setSession(currentSession);
-      setUser(currentSession?.user ?? null);
+        setSession(currentSession);
+        setUser(currentSession?.user ?? null);
 
-      const hash = window.location.hash;
-      const search = window.location.search;
+        const hash = window.location.hash;
+        const search = window.location.search;
 
-      const hasRecoveryUrl =
-        hash.includes('type=recovery') ||
-        hash.includes('access_token=') ||
-        hash.includes('refresh_token=') ||
-        search.includes('type=recovery');
+        const isRecoveryUrl =
+          hash.includes('type=recovery') ||
+          hash.includes('access_token=') ||
+          hash.includes('refresh_token=') ||
+          search.includes('type=recovery');
 
-      if (hasRecoveryUrl) {
-        setIsPasswordRecovery(true);
-      }
+        if (isRecoveryUrl) {
+          setIsPasswordRecovery(true);
+        }
 
-      if (currentSession?.user) {
-        await loadProfile(currentSession.user.id);
-      }
-
-      if (mounted) {
-        setLoading(false);
+        if (currentSession?.user) {
+          await loadProfile(currentSession.user.id);
+        }
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
-    checkSession();
+    initializeAuth();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, newSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!mounted) return;
 
       setSession(newSession);
@@ -116,41 +125,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (event === 'SIGNED_OUT') {
-        setIsPasswordRecovery(false);
+        setSession(null);
+        setUser(null);
         setProfile(null);
+        setIsPasswordRecovery(false);
+        setLoading(false);
+        return;
       }
 
       if (newSession?.user) {
-        loadProfile(newSession.user.id);
+        setLoading(true);
+
+        await loadProfile(newSession.user.id);
+
+        if (mounted) {
+          setLoading(false);
+        }
       } else {
         setProfile(null);
+        setLoading(false);
       }
-
-      setLoading(false);
     });
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        supabase.auth.getSession().then(({ data }) => {
-          if (!mounted) return;
-
-          if (data.session) {
-            setSession(data.session);
-            setUser(data.session.user);
-          }
-        });
-      }
-    };
-
-    window.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       mounted = false;
-      clearTimeout(timeout);
-      window.removeEventListener(
-        'visibilitychange',
-        handleVisibilityChange
-      );
       subscription.unsubscribe();
     };
   }, [loadProfile]);
@@ -158,23 +156,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(
     async (email: string, password: string) => {
       try {
-        const { data, error } =
-          await supabase.auth.signInWithPassword({
-            email,
-            password,
-          });
+        const cleanEmail = email.trim();
+
+        if (!cleanEmail || !password) {
+          return {
+            error: 'دخل الإيميل والباسورد.',
+          };
+        }
+
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
 
         if (error) {
-          return { error: error.message };
+          const message = error.message.toLowerCase();
+
+          if (
+            message.includes('email not confirmed') ||
+            message.includes('email_not_confirmed')
+          ) {
+            return {
+              error:
+                'الإيميل مازال ما تأكدش. تحقق من الإيميل ديالك ثم حاول تسجيل الدخول من جديد.',
+            };
+          }
+
+          if (
+            message.includes('invalid login credentials') ||
+            message.includes('invalid credentials')
+          ) {
+            return {
+              error: 'الإيميل أو الباسورد غير صحيح.',
+            };
+          }
+
+          return {
+            error: error.message,
+          };
         }
 
-        if (data.user) {
-          await loadProfile(data.user.id);
+        if (!data.session) {
+          return {
+            error:
+              'ما قدرناش نفتح Session. إذا كان Email Confirmation شاعل، خاصك تأكد الإيميل أولاً.',
+          };
         }
 
-        return { error: null };
-      } catch (err) {
-        return { error: 'حدث خطأ غير متوقع' };
+        setSession(data.session);
+        setUser(data.user);
+
+        await loadProfile(data.user.id);
+
+        return {
+          error: null,
+        };
+      } catch (error) {
+        console.error('Sign in error:', error);
+
+        return {
+          error: 'وقع خطأ غير متوقع أثناء تسجيل الدخول.',
+        };
       }
     },
     [loadProfile]
@@ -187,32 +229,112 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username: string
     ) => {
       try {
+        const cleanEmail = email.trim();
+        const cleanUsername = username.trim();
+
+        if (!cleanEmail) {
+          return {
+            error: 'دخل الإيميل.',
+          };
+        }
+
+        if (!cleanUsername) {
+          return {
+            error: 'دخل Username.',
+          };
+        }
+
+        if (password.length < 6) {
+          return {
+            error: 'الباسورد خاصو يكون على الأقل 6 حروف.',
+          };
+        }
+
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: cleanEmail,
           password,
           options: {
-            data: { username },
+            data: {
+              username: cleanUsername,
+            },
           },
         });
 
         if (error) {
-          return { error: error.message };
+          const message = error.message.toLowerCase();
+
+          if (message.includes('user already registered')) {
+            return {
+              error: 'هاد الإيميل مسجل من قبل.',
+            };
+          }
+
+          if (message.includes('password')) {
+            return {
+              error: error.message,
+            };
+          }
+
+          return {
+            error: error.message,
+          };
         }
 
-        if (data.user) {
+        /*
+         * الحالة المهمة:
+         *
+         * data.user موجود
+         * ولكن data.session = null
+         *
+         * هادي كتوقع غالباً ملي Email Confirmation شاعل.
+         */
+
+        if (data.user && !data.session) {
+          setUser(data.user);
+          setSession(null);
+
+          return {
+            error:
+              'تم إنشاء الحساب بنجاح. تحقق من الإيميل ديالك من فضلك، ومن بعد رجع وسجل الدخول.',
+          };
+        }
+
+        /*
+         * Email Confirmation مطفي:
+         * Supabase كيعطينا session مباشرة.
+         */
+
+        if (data.user && data.session) {
+          setSession(data.session);
+          setUser(data.user);
+
           await loadProfile(data.user.id);
+
+          return {
+            error: null,
+          };
         }
 
-        return { error: null };
-      } catch (err) {
-        return { error: 'حدث خطأ غير متوقع' };
+        return {
+          error: 'ما قدرناش نكملو إنشاء الحساب.',
+        };
+      } catch (error) {
+        console.error('Sign up error:', error);
+
+        return {
+          error: 'وقع خطأ غير متوقع أثناء إنشاء الحساب.',
+        };
       }
     },
     [loadProfile]
   );
 
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
 
     setProfile(null);
     setUser(null);
@@ -240,11 +362,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
+  const context = useContext(AuthContext);
 
-  if (!ctx) {
-    throw new Error('useAuth must be used within AuthProvider');
+  if (!context) {
+    throw new Error(
+      'useAuth must be used within AuthProvider'
+    );
   }
 
-  return ctx;
+  return context;
 }
