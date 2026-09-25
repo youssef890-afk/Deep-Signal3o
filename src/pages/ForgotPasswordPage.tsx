@@ -1,5 +1,3 @@
-// src/pages/ForgotPasswordPage.tsx
-
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Mail, ShieldCheck } from "lucide-react";
