@@ -1,226 +1,229 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { supabase } from '@/lib/supabase';
-import {
-  Mail,
-  Loader2,
-  Signal,
-  ArrowLeft,
-  CheckCircle,
-} from 'lucide-react';
+// src/pages/ForgotPasswordPage.tsx
+
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, Mail, ShieldCheck } from "lucide-react";
+import { supabase } from "../lib/supabase";
 
 export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState('');
+  const navigate = useNavigate();
 
-  const [loading, setLoading] =
-    useState(false);
+  const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState("");
+  const [step, setStep] = useState<"email" | "otp">("email");
+  const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
-  const [success, setSuccess] =
-    useState(false);
+  const sendOtp = async () => {
+    const cleanEmail = email.trim().toLowerCase();
 
-  const [error, setError] =
-    useState<string | null>(null);
-
-  const handleSubmit = async (
-    e: React.FormEvent
-  ) => {
-    e.preventDefault();
-
-    setError(null);
-
-    const cleanEmail = email.trim();
+    setError("");
+    setMessage("");
 
     if (!cleanEmail) {
-      setError('دخل الإيميل ديالك.');
+      setError("دخل البريد الإلكتروني");
       return;
     }
 
     setLoading(true);
 
     try {
-      const redirectTo =
-        `${window.location.origin}/reset-password`;
-
-      const { error } =
-        await supabase.auth.resetPasswordForEmail(
-          cleanEmail,
-          {
-            redirectTo,
-          }
-        );
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        cleanEmail
+      );
 
       if (error) {
         setError(error.message);
         return;
       }
 
-      setSuccess(true);
-    } catch (error) {
-      console.error(
-        'Password reset error:',
-        error
-      );
-
-      setError(
-        'وقع خطأ أثناء إرسال رابط تغيير الباسورد.'
-      );
+      setStep("otp");
+      setMessage("صيفطنا ليك رمز التحقق من 6 أرقام");
+    } catch {
+      setError("وقع خطأ، حاول مرة أخرى");
     } finally {
       setLoading(false);
     }
   };
 
+  const verifyOtp = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanOtp = otp.trim();
+
+    setError("");
+    setMessage("");
+
+    if (!/^\d{6}$/.test(cleanOtp)) {
+      setError("دخل رمز من 6 أرقام");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: cleanEmail,
+        token: cleanOtp,
+        type: "recovery",
+      });
+
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      if (!data.session) {
+        setError("تعذر إنشاء جلسة استرجاع كلمة السر");
+        return;
+      }
+
+      navigate("/reset-password");
+    } catch {
+      setError("رمز التحقق غير صحيح أو منتهي الصلاحية");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resendOtp = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+
+    setError("");
+    setMessage("");
+    setResending(true);
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        cleanEmail
+      );
+
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      setMessage("عاودنا صيفطنا ليك رمز التحقق");
+    } catch {
+      setError("ما قدرناش نعاودو نصيفطو الرمز");
+    } finally {
+      setResending(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden bg-black text-white">
+    <div className="min-h-screen bg-[#050505] text-white flex items-center justify-center px-4">
+      <div className="w-full max-w-md">
+        <div className="mb-8">
+          <Link
+            to="/login"
+            className="inline-flex items-center gap-2 text-gray-400 hover:text-white transition"
+          >
+            <ArrowLeft size={18} />
+            رجوع
+          </Link>
+        </div>
 
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="rounded-2xl border border-white/10 bg-[#0b0b0b] p-6 shadow-2xl">
+          {step === "email" ? (
+            <>
+              <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center mb-5">
+                <Mail size={26} />
+              </div>
 
-        <div className="absolute top-[-20%] left-[10%] w-[500px] h-[500px] bg-rose-500/10 rounded-full blur-[120px]" />
+              <h1 className="text-2xl font-bold mb-2">
+                نسيت كلمة السر؟
+              </h1>
 
-        <div className="absolute bottom-[-20%] right-[10%] w-[500px] h-[500px] bg-amber-500/10 rounded-full blur-[120px]" />
+              <p className="text-gray-400 mb-6">
+                دخل الإيميل ديالك وغادي نصيفطو ليك رمز تحقق من 6 أرقام.
+              </p>
 
-      </div>
-
-      <div className="w-full max-w-md animate-slide-up relative z-10">
-
-        <div className="glass rounded-3xl p-8 shadow-2xl bg-neutral-900/80 border border-white/10">
-
-          <div className="flex flex-col items-center mb-8">
-
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-500 flex items-center justify-center mb-4 shadow-lg shadow-rose-500/20">
-
-              <Signal
-                className="w-8 h-8 text-white"
-                strokeWidth={2.5}
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Email"
+                className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none focus:border-white/30 mb-4"
+                autoComplete="email"
               />
 
-            </div>
-
-            <h1 className="text-3xl font-bold gradient-text">
-              Reset Password
-            </h1>
-
-            <p className="text-neutral-400 text-sm mt-2 text-center">
-              Enter your email and we&apos;ll send you
-              a reset link.
-            </p>
-
-          </div>
-
-          {success ? (
-
-            <div className="space-y-5">
-
-              <div className="flex flex-col items-center text-center bg-green-500/10 border border-green-500/20 rounded-2xl px-4 py-6">
-
-                <CheckCircle className="w-10 h-10 text-green-400 mb-3" />
-
-                <p className="text-sm text-green-300 font-medium">
-                  تم إرسال رابط تغيير الباسورد.
-                </p>
-
-                <p className="text-sm text-white font-bold mt-2 break-all">
-                  {email}
-                </p>
-
-                <p className="text-xs text-neutral-400 mt-3">
-                  شوف Inbox و Spam / Junk.
-                </p>
-
-                <p className="text-xs text-neutral-500 mt-2">
-                  الرابط غادي يفتح صفحة تغيير الباسورد.
-                </p>
-
-              </div>
-
-              <Link
-                to="/login"
-                className="w-full flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white font-semibold py-3.5 rounded-xl transition-all"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to Sign In
-              </Link>
-
-            </div>
-
-          ) : (
-
-            <form
-              onSubmit={handleSubmit}
-              className="space-y-5"
-            >
-
-              <div>
-
-                <label className="text-xs font-medium text-neutral-400 uppercase tracking-wider mb-2 block">
-                  Email
-                </label>
-
-                <div className="relative">
-
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" />
-
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) =>
-                      setEmail(e.target.value)
-                    }
-                    placeholder="you@example.com"
-                    autoComplete="email"
-                    className="w-full bg-neutral-900/80 border border-white/10 rounded-xl pl-12 pr-4 py-3.5 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 focus:ring-2 focus:ring-rose-500/20 transition-all"
-                  />
-
-                </div>
-
-              </div>
-
               {error && (
-                <div className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 animate-fade-in">
+                <p className="text-red-400 text-sm mb-4">
                   {error}
-                </div>
+                </p>
               )}
 
               <button
-                type="submit"
+                onClick={sendOtp}
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 text-white font-semibold py-3.5 rounded-xl hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-rose-500/20"
+                className="w-full rounded-xl bg-white text-black py-3 font-semibold disabled:opacity-50"
               >
+                {loading ? "جاري الإرسال..." : "صيفط ليا الرمز"}
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center mb-5">
+                <ShieldCheck size={26} />
+              </div>
 
-                {loading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  'Send Reset Link'
-                )}
+              <h1 className="text-2xl font-bold mb-2">
+                رمز التحقق
+              </h1>
 
+              <p className="text-gray-400 mb-6">
+                دخل الرمز المكون من 6 أرقام اللي توصلتي به في:
+                <br />
+                <span className="text-white">{email}</span>
+              </p>
+
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={otp}
+                onChange={(e) =>
+                  setOtp(e.target.value.replace(/\D/g, ""))
+                }
+                placeholder="000000"
+                className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-4 text-center text-2xl tracking-[0.5em] outline-none focus:border-white/30 mb-4"
+              />
+
+              {error && (
+                <p className="text-red-400 text-sm mb-4">
+                  {error}
+                </p>
+              )}
+
+              {message && (
+                <p className="text-green-400 text-sm mb-4">
+                  {message}
+                </p>
+              )}
+
+              <button
+                onClick={verifyOtp}
+                disabled={loading}
+                className="w-full rounded-xl bg-white text-black py-3 font-semibold disabled:opacity-50"
+              >
+                {loading ? "جاري التحقق..." : "تحقق من الرمز"}
               </button>
 
-            </form>
-
-          )}
-
-          {!success && (
-            <div className="mt-6 text-center text-sm text-neutral-400">
-
-              Remember your password?{' '}
-
-              <Link
-                to="/login"
-                className="text-rose-400 hover:text-rose-300 font-medium transition-colors"
+              <button
+                onClick={resendOtp}
+                disabled={resending}
+                className="w-full mt-4 text-gray-400 hover:text-white text-sm"
               >
-                Sign in
-              </Link>
-
-            </div>
+                {resending
+                  ? "جاري إعادة الإرسال..."
+                  : "ما وصلنيش الرمز؟ عاود الإرسال"}
+              </button>
+            </>
           )}
-
         </div>
-
       </div>
-
     </div>
   );
 }
