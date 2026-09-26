@@ -172,3 +172,62 @@
   background: linear-gradient(135deg, #F59E0B, #FB923C);
   animation: float 15s ease-in-out infinite reverse;
 }
+
+
+/* ============================================
+   DEEP SIGNAL — OBSIDIAN EDITION
+   ============================================ */
+
+@layer utilities {
+  /* Glass cards */
+  .glass-card {
+    background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  /* Neon glows */
+  .glow-purple { box-shadow: 0 0 30px rgba(139,92,246,0.5), 0 0 60px rgba(139,92,246,0.2); }
+  .glow-cyan { box-shadow: 0 0 30px rgba(6,182,212,0.5), 0 0 60px rgba(6,182,212,0.2); }
+  .glow-rose { box-shadow: 0 0 30px rgba(244,63,94,0.5), 0 0 60px rgba(244,63,94,0.2); }
+
+  .glow-text-purple { text-shadow: 0 0 20px rgba(139,92,246,0.7); }
+  .glow-text-cyan { text-shadow: 0 0 20px rgba(6,182,212,0.7); }
+
+  /* New gradient */
+  .gradient-primary {
+    background: linear-gradient(135deg, #8B5CF6 0%, #06B6D4 100%);
+  }
+  .gradient-accent {
+    background: linear-gradient(135deg, #F43F5E 0%, #8B5CF6 100%);
+  }
+
+  .gradient-text-primary {
+    background: linear-gradient(135deg, #A78BFA 0%, #22D3EE 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Neon border */
+  .border-glow {
+    border: 1px solid rgba(139,92,246,0.4);
+    box-shadow: 0 0 20px rgba(139,92,246,0.15), inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+
+  /* Touch feedback */
+  .tap-scale {
+    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .tap-scale:active {
+    transform: scale(0.95);
+  }
+
+  /* Shimmer skeleton */
+  .skeleton {
+    background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+}
