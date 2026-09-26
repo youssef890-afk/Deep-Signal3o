@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { MessagesProvider } from '@/context/MessagesContext';
 import MobileNav from '@/components/MobileNav';
+import PageBackground from '@/components/PageBackground';
 import LoginPage from '@/pages/LoginPage';
 import SignupPage from '@/pages/SignupPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
@@ -17,8 +19,9 @@ import type { ReactNode } from 'react';
 
 function ProtectedLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#08080D]">
-      <main className="min-h-screen pb-[88px]">
+    <div className="min-h-screen relative">
+      <PageBackground />
+      <main className="relative z-10 min-h-screen pb-[88px]">
         {children}
       </main>
       <MobileNav />
@@ -60,17 +63,19 @@ function AuthGate() {
   }
 
   return (
-    <Routes>
-      <Route path="/feed" element={<ProtectedLayout><FeedPage /></ProtectedLayout>} />
-      <Route path="/search" element={<ProtectedLayout><SearchPage /></ProtectedLayout>} />
-      <Route path="/rooms" element={<ProtectedLayout><RoomsPage /></ProtectedLayout>} />
-      <Route path="/rooms/:roomId" element={<ProtectedLayout><RoomDetailPage /></ProtectedLayout>} />
-      <Route path="/reels" element={<ProtectedLayout><ReelsPage /></ProtectedLayout>} />
-      <Route path="/chat" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
-      <Route path="/chat/:userId" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
-      <Route path="/profile/:userId" element={<ProtectedLayout><ProfilePage /></ProtectedLayout>} />
-      <Route path="*" element={<Navigate to="/feed" replace />} />
-    </Routes>
+    <MessagesProvider>
+      <Routes>
+        <Route path="/feed" element={<ProtectedLayout><FeedPage /></ProtectedLayout>} />
+        <Route path="/search" element={<ProtectedLayout><SearchPage /></ProtectedLayout>} />
+        <Route path="/rooms" element={<ProtectedLayout><RoomsPage /></ProtectedLayout>} />
+        <Route path="/rooms/:roomId" element={<ProtectedLayout><RoomDetailPage /></ProtectedLayout>} />
+        <Route path="/reels" element={<ProtectedLayout><ReelsPage /></ProtectedLayout>} />
+        <Route path="/chat" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
+        <Route path="/chat/:userId" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
+        <Route path="/profile/:userId" element={<ProtectedLayout><ProfilePage /></ProtectedLayout>} />
+        <Route path="*" element={<Navigate to="/feed" replace />} />
+      </Routes>
+    </MessagesProvider>
   );
 }
 

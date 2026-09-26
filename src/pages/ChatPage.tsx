@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { useMessages } from '@/context/MessagesContext';
 import Avatar from '@/components/Avatar';
 import { Send, ArrowLeft, Loader2, MessageCircle } from 'lucide-react';
 import { formatTime } from '@/utils/format';
@@ -9,6 +10,7 @@ import type { Profile, Message } from '@/types';
 
 export default function ChatPage() {
   const { user, profile: myProfile } = useAuth();
+  const { refreshUnread } = useMessages();
   const { userId: activeUserId } = useParams();
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<{ otherUser: Profile; lastMessage: Message | null; unreadCount: number }[]>([]);
@@ -107,6 +109,7 @@ export default function ChatPage() {
 
     // Mark received messages as read
     if (data) {
+      void refreshUnread();
       const unread = (data as Message[]).filter(
         (m) => m.receiver_id === user.id && !m.read_at
       );
