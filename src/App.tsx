@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { MessagesProvider } from '@/context/MessagesContext';
+import { ThemeProvider } from '@/context/ThemeContext';
 import MobileNav from '@/components/MobileNav';
 import PageBackground from '@/components/PageBackground';
 import LoginPage from '@/pages/LoginPage';
@@ -87,10 +88,12 @@ function AuthGate() {
 
 export default function App() {
   return (
-    <AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
       <BrowserRouter>
         <AuthGate />
       </BrowserRouter>
     </AuthProvider>
+    </ThemeProvider>
   );
 }

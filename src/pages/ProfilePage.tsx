@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import SettingsPanel from '@/components/SettingsPanel';
 import { supabase } from '@/lib/supabase';
 
 import {
@@ -14,6 +15,7 @@ import {
   Check,
   Grid,
   LogOut,
+  Settings,
 } from 'lucide-react';
 
 interface ProfileData {
@@ -58,6 +60,7 @@ export default function ProfilePage() {
 
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // ============================================
   // تحميل معلومات البروفايل
@@ -455,38 +458,13 @@ export default function ProfilePage() {
 
         {isOwnProfile && (
           <button
-            onClick={() => void handleLogout()}
-            disabled={loggingOut}
-            className="
-              flex
-              items-center
-              gap-2
-              px-4
-              py-2
-              rounded-xl
-              bg-red-500/10
-              border
-              border-red-500/30
-              text-red-400
-              hover:bg-red-500/20
-              transition-colors
-              disabled:opacity-50
-            "
+            onClick={() => setSettingsOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-colors"
           >
-            {loggingOut ? (
-              <Loader2
-                className="w-4 h-4 animate-spin"
-              />
-            ) : (
-              <LogOut
-                className="w-4 h-4"
-              />
-            )}
+            <Settings className="w-4 h-4" />
 
             <span className="text-xs font-bold">
-              {loggingOut
-                ? 'جاري الخروج...'
-                : 'تسجيل الخروج'}
+              الإعدادات
             </span>
           </button>
         )}
@@ -1167,6 +1145,11 @@ export default function ProfilePage() {
         )}
 
       </div>
+
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
 
     </div>
   );
