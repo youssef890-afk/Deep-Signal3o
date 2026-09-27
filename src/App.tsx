@@ -13,6 +13,7 @@ import FeedPage from '@/pages/FeedPage';
 import ChatPage from '@/pages/ChatPage';
 import ProfilePage from '@/pages/ProfilePage';
 import SearchPage from '@/pages/SearchPage';
+import DiscoverPage from '@/pages/DiscoverPage';
 import RoomsPage from '@/pages/RoomsPage';
 import ReelsPage from '@/pages/ReelsPage';
 import RoomDetailPage from '@/pages/RoomDetailPage';
@@ -74,6 +75,7 @@ function AuthGate() {
       <Routes>
         <Route path="/feed" element={<ProtectedLayout><FeedPage /></ProtectedLayout>} />
         <Route path="/search" element={<ProtectedLayout><SearchPage /></ProtectedLayout>} />
+        <Route path="/discover" element={<ProtectedLayout><DiscoverPage /></ProtectedLayout>} />
         <Route path="/rooms" element={<ProtectedLayout><RoomsPage /></ProtectedLayout>} />
         <Route path="/rooms/:roomId" element={<ProtectedLayout><RoomDetailPage /></ProtectedLayout>} />
         <Route path="/reels" element={<ProtectedLayout><ReelsPage /></ProtectedLayout>} />
