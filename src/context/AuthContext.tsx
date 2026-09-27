@@ -32,6 +32,7 @@ interface AuthContextType {
     error: Error | null;
     user: any | null;
   }>;
+  verifyRecoveryOtp: (email: string, token: string) => Promise<{ error: Error | null }>;
   verifyEmailOtp: (
     email: string,
     token: string
@@ -58,6 +59,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => { const _t = setTimeout(() => setLoading(false), 500); return () => clearTimeout(_t); }, []);
 
   const loadProfile = async (userId: string) => {
+    // ⚠️ Skip if in recovery mode
+    if (sessionStorage.getItem('password_recovery') === '1') {
+      console.log('SKIP LOAD PROFILE - recovery mode');
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from("profiles")
@@ -289,6 +295,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const verifyRecoveryOtp = async (email, token) => {
+    try {
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanToken = token.trim();
+
+      if (cleanToken.length !== 6) {
+        return { error: new Error('رمز التحقق خاصو يكون 6 أرقام') };
+      }
+
+      const result = await supabase.auth.verifyOtp({
+        email: cleanEmail,
+        token: cleanToken,
+        type: 'recovery',
+      });
+
+      if (result.error) {
+        return { error: new Error(result.error.message) };
+      }
+
+      if (result.data.session === null) {
+        return { error: new Error('ما قدرناش نفتح Session') };
+      }
+
+      return { error: null };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'خطأ غير متوقع';
+      return { error: new Error(msg) };
+    }
+  };
+
   const resendVerificationCode = async (email: string) => {
     try {
       const cleanEmail = email.trim().toLowerCase();
@@ -346,6 +382,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     signIn,
     signUp,
+    verifyRecoveryOtp,
     verifyEmailOtp,
     resendVerificationCode,
     signOut,

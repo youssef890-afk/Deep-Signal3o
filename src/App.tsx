@@ -58,6 +58,16 @@ function AuthGate() {
     );
   }
 
+  // Recovery mode: force reset password page
+  if (sessionStorage.getItem('password_recovery') === '1') {
+    return (
+      <Routes>
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="*" element={<Navigate to="/reset-password" replace />} />
+      </Routes>
+    );
+  }
+
   if (!session) {
     return (
       <Routes>
