@@ -55,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<any | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  useEffect(() => { const _t = setTimeout(() => setLoading(false), 500); return () => clearTimeout(_t); }, []);
 
   const loadProfile = async (userId: string) => {
     try {
