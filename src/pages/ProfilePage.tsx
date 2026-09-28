@@ -169,7 +169,8 @@ export default function ProfilePage() {
   }, [targetUserId, user, isOwnProfile]);
 
   useEffect(() => {
-    void loadProfileData();
+    const _tProfile = setTimeout(() => { setLoading(false); }, 3000);
+    void loadProfileData().finally(() => clearTimeout(_tProfile));
   }, [loadProfileData]);
 
   // ============================================

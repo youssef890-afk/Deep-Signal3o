@@ -120,7 +120,8 @@ export default function ChatPage() {
   }, [user, activeUserId]);
 
   useEffect(() => {
-    loadMessages();
+    const _tc = setTimeout(() => { setLoading(false); }, 3000);
+    loadMessages().finally(() => clearTimeout(_tc));
   }, [loadMessages]);
 
   // Realtime subscription
