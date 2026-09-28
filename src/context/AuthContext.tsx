@@ -58,6 +58,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   useEffect(() => { const _t = setTimeout(() => setLoading(false), 500); return () => clearTimeout(_t); }, []);
 
+  const ensureProfileExists = async (userData: any) => {
+    try {
+      const { data: existing } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userData.id)
+        .maybeSingle();
+
+      if (existing) return;
+
+      const email = userData.email || '';
+      const meta = userData.user_metadata || {};
+      const raw = (meta.username || email.split('@')[0] || 'user').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20) || 'user';
+
+      let finalUsername = raw;
+      let counter = 0;
+      while (counter < 50) {
+        const { data: exists } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('username', finalUsername)
+          .maybeSingle();
+        if (!exists) break;
+        counter++;
+        finalUsername = raw.slice(0, 15) + '_' + counter;
+      }
+
+      await supabase.from('profiles').insert({
+        id: userData.id,
+        username: finalUsername,
+        full_name: meta.full_name || meta.name || '',
+        avatar_url: meta.avatar_url || meta.picture || null,
+      });
+
+      console.log('AUTO-CREATED PROFILE:', finalUsername);
+    } catch (e) {
+      console.error('ensureProfileExists error:', e);
+    }
+  };
+
   const loadProfile = async (userId: string) => {
     // ⚠️ Skip if in recovery mode
     if (sessionStorage.getItem('password_recovery') === '1') {
@@ -97,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
 
         if (session?.user) {
+          await ensureProfileExists(session.user);
           await loadProfile(session.user.id);
         }
       } catch (error) {
@@ -119,6 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(session?.user ?? null);
 
       if (session?.user) {
+        await ensureProfileExists(session.user);
         await loadProfile(session.user.id);
       } else {
         setProfile(null);
