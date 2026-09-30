@@ -26,23 +26,41 @@ export default function ResetPasswordPage() {
     }
 
     setLoading(true);
-    const { error: updateError } = await supabase.auth.updateUser({ password });
-    setLoading(false);
 
-    if (updateError) {
-      setError(updateError.message);
-      return;
+    // Timeout 15 ثانية
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('TIMEOUT')), 15000)
+    );
+
+    try {
+      const updatePromise = supabase.auth.updateUser({ password });
+      const result: any = await Promise.race([updatePromise, timeoutPromise]);
+
+      if (result.error) {
+        setError(result.error.message);
+        setLoading(false);
+        return;
+      }
+
+      setDone(true);
+      sessionStorage.removeItem('password_recovery');
+      setLoading(false);
+
+      // ما نستناوش signOut
+      supabase.auth.signOut().catch(() => {});
+
+      setTimeout(() => {
+        navigate('/login', { replace: true });
+      }, 2000);
+
+    } catch (err: any) {
+      setLoading(false);
+      if (err.message === 'TIMEOUT') {
+        setError('انتهى الوقت. جرب مرة أخرى.');
+      } else {
+        setError(err.message || 'خطأ غير متوقع');
+      }
     }
-
-    setDone(true);
-
-    // من بعد ما تبدل، حيد الـ flag و سجل خروج
-    sessionStorage.removeItem('password_recovery');
-    await supabase.auth.signOut();
-
-    setTimeout(() => {
-      navigate('/login', { replace: true });
-    }, 2000);
   };
 
   if (done) {
@@ -53,7 +71,7 @@ export default function ResetPasswordPage() {
             <CheckCircle2 className="w-10 h-10 text-emerald-400" />
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">تم بنجاح ✅</h1>
-          <p className="text-white/60 text-sm">كلمة السر تبدلت. جاري التحويل لتسجيل الدخول...</p>
+          <p className="text-white/60 text-sm">كلمة السر تبدلت. جاري التحويل...</p>
         </div>
       </div>
     );

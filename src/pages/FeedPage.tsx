@@ -98,7 +98,14 @@ export default function FeedPage() {
   useEffect(() => {
     if (!user) return;
 
-    void loadFeed();
+    const _safetyFeed = setTimeout(() => {
+      console.log('FEED TIMEOUT - forcing loading=false');
+      setLoading(false);
+    }, 3000);
+    void loadFeed().finally(() => clearTimeout(_safetyFeed)).catch((e) => {
+      console.error('loadFeed crashed:', e);
+      setLoading(false);
+    });
   }, [user]);
 
   async function loadFeed() {
