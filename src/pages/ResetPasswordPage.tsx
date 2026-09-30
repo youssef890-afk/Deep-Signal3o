@@ -11,6 +11,7 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  const [slow, setSlow] = useState(false);
 
   const handleSave = async () => {
     setError('');
@@ -26,27 +27,36 @@ export default function ResetPasswordPage() {
     }
 
     setLoading(true);
+    setSlow(false);
 
-    // Timeout 15 ثانية
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('TIMEOUT')), 15000)
-    );
+    // بعد 5 ثواني، نوري رسالة "جاري الحفظ، تسنى..."
+    const slowTimer = setTimeout(() => setSlow(true), 5000);
 
     try {
-      const updatePromise = supabase.auth.updateUser({ password });
-      const result: any = await Promise.race([updatePromise, timeoutPromise]);
+      // 1. تأكد من session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setError('الجلسة انتهت. رجع لصفحة "نسيت كلمة السر"');
+        setLoading(false);
+        clearTimeout(slowTimer);
+        return;
+      }
 
-      if (result.error) {
-        setError(result.error.message);
+      // 2. updateUser (بلا timeout)
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+      clearTimeout(slowTimer);
+
+      if (updateError) {
+        setError(updateError.message);
         setLoading(false);
         return;
       }
 
+      // 3. نجح
       setDone(true);
       sessionStorage.removeItem('password_recovery');
       setLoading(false);
 
-      // ما نستناوش signOut
       supabase.auth.signOut().catch(() => {});
 
       setTimeout(() => {
@@ -54,12 +64,9 @@ export default function ResetPasswordPage() {
       }, 2000);
 
     } catch (err: any) {
+      clearTimeout(slowTimer);
       setLoading(false);
-      if (err.message === 'TIMEOUT') {
-        setError('انتهى الوقت. جرب مرة أخرى.');
-      } else {
-        setError(err.message || 'خطأ غير متوقع');
-      }
+      setError(err.message || 'خطأ غير متوقع');
     }
   };
 
@@ -120,6 +127,12 @@ export default function ResetPasswordPage() {
                 className="w-full bg-black/40 border border-white/10 rounded-2xl pr-12 pl-4 py-3.5 text-sm text-white placeholder-white/25 focus:outline-none focus:border-purple-500/60"
               />
             </div>
+
+            {slow && loading && (
+              <div className="text-sm text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 text-center">
+                ⏳ جاري الحفظ... Supabase بطيء حالياً. تسنى شوية.
+              </div>
+            )}
 
             {error && (
               <div className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
