@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { Gamepad2, RotateCcw, Bot, Users, Trophy, Wifi, Copy } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -10,9 +12,29 @@ interface LeaderboardEntry {
   points: number;
 }
 
+interface GameStats {
+  totalPoints: number;
+  totalGames: number;
+  totalWins: number;
+  todayGames: number;
+  todayWins: number;
+}
+
+const gameCatalog = [
+  { name: 'إكس-أو المتقدمة', category: 'ألعاب لوحية', status: 'متاحة', icon: '❌⭕' },
+  { name: 'الحنش الملوّن', category: 'أركيد', status: 'قريباً', icon: '🐍' },
+  { name: 'بلياردو 8', category: 'رياضة', status: 'قريباً', icon: '🎱' },
+  { name: 'Connect Four', category: 'ألعاب لوحية', status: 'قريباً', icon: '🔴' },
+  { name: 'تنس الطاولة', category: 'رياضة', status: 'قريباً', icon: '🏓' },
+  { name: 'الشطرنج', category: 'ألعاب لوحية', status: 'قريباً', icon: '♟️' },
+  { name: 'الداما', category: 'ألعاب لوحية', status: 'قريباً', icon: '⚫' },
+  { name: 'الحنش والسلالم', category: 'ألعاب لوحية', status: 'قريباً', icon: '🎲' },
+];
+
 export default function GamesPage() {
   const { user } = useAuth();
   const [board, setBoard] = useState<Array<string | null>>(Array(9).fill(null));
+  const [boardSize, setBoardSize] = useState(3);
   const [isXNext, setIsXNext] = useState(true);
   const [vsAI, setVsAI] = useState(true);
   const [onlineMode, setOnlineMode] = useState(false);
@@ -22,34 +44,65 @@ export default function GamesPage() {
   const [opponentConnected, setOpponentConnected] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [leaderboardError, setLeaderboardError] = useState('');
+  const [gameStats, setGameStats] = useState<GameStats | null>(null);
+  const [progressError, setProgressError] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const scoreRecordedRef = useRef(false);
 
   // حساب الفائز
-  const calculateWinner = (squares: Array<string | null>) => {
-    const lines = [
-      [0, 1, 2], [3, 4, 5], [6, 7, 8], // أفقياً
-      [0, 3, 6], [1, 4, 7], [2, 5, 8], // عمودياً
-      [0, 4, 8], [2, 4, 6]             // قطرياً
-    ];
-    for (let i = 0; i < lines.length; i++) {
-      const [a, b, c] = lines[i];
-      if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {
-        return squares[a];
+  const calculateWinner = (squares: Array<string | null>, size: number) => {
+    const target = size === 3 ? 3 : 4;
+    const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+
+    for (let row = 0; row < size; row++) {
+      for (let column = 0; column < size; column++) {
+        const mark = squares[row * size + column];
+        if (!mark) continue;
+
+        for (const [rowStep, columnStep] of directions) {
+          let matches = 1;
+          for (let step = 1; step < target; step++) {
+            const nextRow = row + rowStep * step;
+            const nextColumn = column + columnStep * step;
+            if (nextRow < 0 || nextRow >= size || nextColumn < 0 || nextColumn >= size) break;
+            if (squares[nextRow * size + nextColumn] !== mark) break;
+            matches++;
+          }
+          if (matches === target) return mark;
+        }
       }
     }
     return null;
   };
 
-  const winner = calculateWinner(board);
+  const winner = calculateWinner(board, boardSize);
   const isDraw = !winner && board.every((square) => square !== null);
+  const playerLost = Boolean(winner && (onlineMode
+    ? (winner === 'X') !== (onlineRole === 'host')
+    : vsAI && winner === 'O'));
 
   const loadLeaderboard = useCallback(async () => {
     if (!user) return;
     const monday = new Date();
     monday.setUTCHours(0, 0, 0, 0);
     monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+
+    const { data: statsRows, error: statsError } = await supabase.rpc('get_my_game_stats');
+    const stats = statsRows?.[0];
+    if (statsError || !stats) {
+      setGameStats(null);
+      setProgressError('طبّق migration ديال تقدم الألعاب باش يبان المستوى والمهام.');
+    } else {
+      setGameStats({
+        totalPoints: Number(stats.total_points),
+        totalGames: Number(stats.total_games),
+        totalWins: Number(stats.total_wins),
+        todayGames: Number(stats.today_games),
+        todayWins: Number(stats.today_wins),
+      });
+      setProgressError('');
+    }
 
     const { data: follows, error: followError } = await supabase
       .from('follows')
@@ -103,13 +156,15 @@ export default function GamesPage() {
       });
   }, [isDraw, loadLeaderboard, onlineMode, onlineRole, user, winner]);
 
-  function connectToMatch(code: string, role: 'host' | 'guest') {
+  function connectToMatch(code: string, role: 'host' | 'guest', size = boardSize) {
     if (channelRef.current) void supabase.removeChannel(channelRef.current);
     const channel = supabase.channel(`ttt:${code}`, { config: { broadcast: { self: false } } });
     channel
       .on('broadcast', { event: 'joined' }, () => setOpponentConnected(true))
       .on('broadcast', { event: 'state' }, ({ payload }) => {
-        if (!Array.isArray(payload.board) || payload.board.length !== 9) return;
+        const nextBoardSize = Number(payload.boardSize);
+        if (!Array.isArray(payload.board) || ![3, 4, 5].includes(nextBoardSize) || payload.board.length !== nextBoardSize * nextBoardSize) return;
+        setBoardSize(nextBoardSize);
         setBoard(payload.board as Array<string | null>);
         setIsXNext(Boolean(payload.isXNext));
       })
@@ -124,7 +179,8 @@ export default function GamesPage() {
     setInviteCode(code);
     setOnlineRole(role);
     setOnlineMode(true);
-    setBoard(Array(9).fill(null));
+    setBoardSize(size);
+    setBoard(Array(size * size).fill(null));
     setIsXNext(true);
     setOpponentConnected(role === 'guest');
     scoreRecordedRef.current = false;
@@ -152,19 +208,59 @@ export default function GamesPage() {
     resetGame();
   }
 
-  // حركة الكمبيوتر (AI بسيط)
+  // حركة الكمبيوتر
   const makeAIMove = (currentBoard: Array<string | null>) => {
     const emptyIndices = currentBoard
       .map((val, idx) => (val === null ? idx : null))
       .filter((val): val is number => val !== null);
 
-    if (emptyIndices.length > 0) {
-      const randomIndex = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
-      const newBoard = [...currentBoard];
-      newBoard[randomIndex] = 'O';
-      setBoard(newBoard);
-      setIsXNext(true);
+    if (emptyIndices.length === 0) return;
+
+    const findWinningMove = (mark: string) => emptyIndices.find((index) => {
+      const candidate = [...currentBoard];
+      candidate[index] = mark;
+      return calculateWinner(candidate, boardSize) === mark;
+    });
+
+    let selectedIndex = findWinningMove('O') ?? findWinningMove('X');
+
+    if (selectedIndex === undefined && boardSize === 3) {
+      const minimax = (squares: Array<string | null>, xTurn: boolean, depth: number): number => {
+        const result = calculateWinner(squares, 3);
+        if (result === 'O') return 10 - depth;
+        if (result === 'X') return depth - 10;
+        if (squares.every((square) => square !== null)) return 0;
+
+        const scores = squares.flatMap((square, index) => {
+          if (square !== null) return [];
+          const nextBoard = [...squares];
+          nextBoard[index] = xTurn ? 'X' : 'O';
+          return [minimax(nextBoard, !xTurn, depth + 1)];
+        });
+        return xTurn ? Math.max(...scores) : Math.min(...scores);
+      };
+
+      const moves = emptyIndices.map((index) => {
+        const candidate = [...currentBoard];
+        candidate[index] = 'O';
+        return { index, score: minimax(candidate, true, 0) };
+      });
+      const bestScore = Math.min(...moves.map((move) => move.score));
+      const bestMoves = moves.filter((move) => move.score === bestScore);
+      selectedIndex = bestMoves[Math.floor(Math.random() * bestMoves.length)].index;
     }
+
+    if (selectedIndex === undefined) {
+      selectedIndex = Math.floor(boardSize / 2) * boardSize + Math.floor(boardSize / 2);
+      if (currentBoard[selectedIndex] !== null) {
+        selectedIndex = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
+      }
+    }
+
+    const newBoard = [...currentBoard];
+    newBoard[selectedIndex] = 'O';
+    setBoard(newBoard);
+    setIsXNext(true);
   };
 
   const handleClick = (index: number) => {
@@ -179,11 +275,11 @@ export default function GamesPage() {
     if (onlineMode) {
       const nextIsX = !isXNext;
       setIsXNext(nextIsX);
-      void channelRef.current?.send({ type: 'broadcast', event: 'state', payload: { board: newBoard, isXNext: nextIsX } });
+      void channelRef.current?.send({ type: 'broadcast', event: 'state', payload: { board: newBoard, boardSize, isXNext: nextIsX } });
       return;
     }
 
-    if (vsAI && isXNext && !calculateWinner(newBoard)) {
+    if (vsAI && isXNext && !calculateWinner(newBoard, boardSize)) {
       setIsXNext(false);
       setTimeout(() => makeAIMove(newBoard), 400);
     } else {
@@ -192,7 +288,7 @@ export default function GamesPage() {
   };
 
   const resetGame = () => {
-    setBoard(Array(9).fill(null));
+    setBoard(Array(boardSize * boardSize).fill(null));
     setIsXNext(true);
     scoreRecordedRef.current = false;
   };
@@ -205,6 +301,40 @@ export default function GamesPage() {
 
   return (
     <div className="min-h-screen bg-[#090D16] text-white py-10 px-4" dir="rtl">
+      <AnimatePresence>
+        {winner && (
+          <motion.div
+            key={`${winner}-${boardSize}`}
+            role="status"
+            aria-live="assertive"
+            className={`pointer-events-none fixed inset-0 z-50 flex items-center justify-center overflow-hidden ${playerLost ? 'bg-rose-950/35' : 'bg-emerald-950/30'}`}
+            initial={{ opacity: 0 }}
+            animate={playerLost
+              ? { opacity: 1, x: [0, -7, 7, -5, 5, 0] }
+              : { opacity: 1, scale: [0.96, 1.02, 1] }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: playerLost ? 0.55 : 0.7 }}
+          >
+            {!playerLost && Array.from({ length: 24 }, (_, index) => (
+              <motion.span
+                key={index}
+                className="absolute top-[-5%] h-2.5 w-2 rounded-sm"
+                style={{ left: `${(index * 41) % 100}%`, backgroundColor: ['#fbbf24', '#34d399', '#fb7185', '#67e8f9'][index % 4] }}
+                animate={{ y: ['0vh', '110vh'], rotate: [0, 540] }}
+                transition={{ duration: 1.8 + (index % 5) * 0.25, delay: (index % 8) * 0.08, ease: 'linear' }}
+              />
+            ))}
+            <motion.div
+              className={`rounded-2xl border px-8 py-6 text-center shadow-2xl backdrop-blur-md ${playerLost ? 'border-rose-300/30 bg-rose-950/70 text-rose-100' : 'border-emerald-200/30 bg-emerald-950/70 text-emerald-100'}`}
+              initial={{ y: 16, scale: 0.9 }}
+              animate={{ y: 0, scale: 1 }}
+            >
+              <p className="text-2xl font-black">{playerLost ? 'الجولة الجاية أحسن' : 'ربحتي الجولة!'}</p>
+              <p className="mt-2 text-sm opacity-75">{onlineMode ? (winner === 'X' ? 'صاحب كود الدعوة ربح' : 'اللاعب المنضم ربح') : `الفائز ${winner}`}</p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="max-w-4xl mx-auto space-y-8">
 
         {/* عنوان قسم الألعاب */}
@@ -215,6 +345,72 @@ export default function GamesPage() {
           <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
             العاب وتحديات
           </h1>
+        </div>
+
+        <nav className="flex flex-wrap justify-center gap-2" aria-label="أقسام الألعاب">
+          {[
+            ['#game-library', 'الألعاب'],
+            ['#game-modes', 'طرق اللعب'],
+            ['#game-progress', 'المستويات والمهام'],
+            ['#game-leaderboard', 'الترتيب والجوائز'],
+          ].map(([href, label]) => (
+            <a key={href} href={href} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/65 transition-colors hover:border-cyan-300/30 hover:text-white">
+              {label}
+            </a>
+          ))}
+        </nav>
+
+        <Link to="/games/voice-card-clash" className="mx-auto flex max-w-2xl items-center gap-3 rounded-xl border border-emerald-200/15 bg-emerald-200/[0.045] px-4 py-3 transition hover:border-emerald-200/30 hover:bg-emerald-200/[0.08]">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-200/10 text-emerald-100"><Gamepad2 className="h-5 w-5" /></span>
+          <span className="min-w-0 flex-1"><span className="block text-sm font-bold text-white">Voice Card Clash · 4 ضد 4</span><span className="mt-0.5 block text-[11px] text-white/45">مزايدات، خدع، وصوت جماعي مع فريقك</span></span>
+          <span className="shrink-0 text-xs font-semibold text-emerald-100">فتح اللعبة</span>
+        </Link>
+
+        <section id="game-library" className="scroll-mt-24 space-y-3">
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold">مكتبة الألعاب</h2>
+              <p className="mt-1 text-xs text-white/45">لوحية، أركيد، ورياضة</p>
+            </div>
+            <span className="text-xs text-white/40">8 ألعاب</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {gameCatalog.map((game) => (
+              <article key={game.name} className="min-w-0 rounded-xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span aria-hidden="true" className="text-xl">{game.icon}</span>
+                  <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] ${game.status === 'متاحة' ? 'bg-emerald-400/10 text-emerald-200' : 'bg-white/[0.06] text-white/40'}`}>
+                    {game.status}
+                  </span>
+                </div>
+                <h3 className="mt-3 truncate text-sm font-semibold">{game.name}</h3>
+                <p className="mt-1 text-[11px] text-white/40">{game.category}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <div id="game-modes" className="scroll-mt-24 space-y-3">
+        <h2 className="text-center text-sm font-semibold text-white/75">طرق اللعب</h2>
+        <div className="mx-auto flex max-w-md items-center justify-center gap-2" role="group" aria-label="حجم لوحة إكس-أو">
+          {[3, 4, 5].map((size) => (
+            <button
+              key={size}
+              type="button"
+              onClick={() => {
+                setBoardSize(size);
+                setBoard(Array(size * size).fill(null));
+                setIsXNext(true);
+                scoreRecordedRef.current = false;
+              }}
+              disabled={onlineMode}
+              aria-pressed={boardSize === size}
+              className={`rounded-full border px-4 py-2 text-xs transition-colors disabled:opacity-40 ${boardSize === size ? 'border-cyan-300/50 bg-cyan-300/10 text-cyan-100' : 'border-white/10 bg-white/[0.03] text-white/55'}`}
+            >
+              {size} × {size}
+            </button>
+          ))}
+          {boardSize > 3 && <span className="text-[10px] text-white/40">أول لاعب يربط 4 كيربح</span>}
         </div>
 
         <div className="mx-auto flex max-w-md items-center justify-center gap-2" role="group" aria-label="وضع اللعب">
@@ -255,6 +451,7 @@ export default function GamesPage() {
             <p className="text-[10px] leading-5 text-white/40">المباراة المباشرة تحتاج اتصالاً بالإنترنت وSupabase Realtime.</p>
           </section>
         )}
+        </div>
 
         {/* كارت لعبة إكس - أو (Tic-Tac-Toe) */}
         <div className="max-w-md mx-auto bg-white/[0.03] border border-white/10 rounded-3xl p-6 backdrop-blur-xl shadow-2xl space-y-6">
@@ -288,7 +485,7 @@ export default function GamesPage() {
           </div>
 
           {/* شبكة اللعبة (3x3) */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid gap-2 sm:gap-3" style={{ gridTemplateColumns: `repeat(${boardSize}, minmax(0, 1fr))` }}>
             {board.map((value, index) => (
               <button
                 key={index}
@@ -298,7 +495,7 @@ export default function GamesPage() {
                     !opponentConnected || (isXNext ? onlineRole !== 'host' : onlineRole !== 'guest')
                   ))
                 )}
-                className={`h-24 rounded-2xl text-3xl font-black flex items-center justify-center transition-all bg-black/40 border border-white/10 hover:border-purple-500/50 hover:bg-white/5 active:scale-95 ${
+                className={`aspect-square min-h-0 rounded-xl sm:rounded-2xl text-2xl sm:text-3xl font-black flex items-center justify-center transition-all bg-black/40 border border-white/10 hover:border-purple-500/50 hover:bg-white/5 active:scale-95 ${
                   value === 'X' ? 'text-purple-400' : 'text-cyan-400'
                 }`}
               >
@@ -316,7 +513,55 @@ export default function GamesPage() {
           </button>
         </div>
 
-        <section className="mx-auto max-w-md rounded-2xl border border-white/10 bg-white/[0.03] p-5" dir="rtl">
+        <section id="game-progress" className="mx-auto max-w-md scroll-mt-24 space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5" dir="rtl">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">المستويات والمهام</h2>
+              <p className="mt-1 text-[11px] text-white/40">كل 100 نقطة كتفتح مستوى جديد</p>
+            </div>
+            {gameStats && <span className="rounded-full bg-cyan-300/10 px-3 py-1.5 text-xs font-bold text-cyan-100">المستوى {Math.floor(gameStats.totalPoints / 100) + 1}</span>}
+          </div>
+          {progressError ? (
+            <p className="text-xs leading-5 text-amber-200/80">{progressError}</p>
+          ) : !gameStats ? (
+            <p className="text-xs text-white/45">كنجيبو تقدمك...</p>
+          ) : (
+            <>
+              <div className="flex items-center justify-between text-[11px] text-white/55">
+                <span>{gameStats.totalPoints % 100} / 100 XP</span>
+                <span>المكافأة الجاية: شارة المستوى {Math.ceil((Math.floor(gameStats.totalPoints / 100) + 1) / 5) * 5}</span>
+              </div>
+              <div
+                role="progressbar"
+                aria-label="التقدم نحو المستوى التالي"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={gameStats.totalPoints % 100}
+                className="h-2 overflow-hidden rounded-full bg-white/10"
+              >
+                <div className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-emerald-300 transition-[width]" style={{ width: `${gameStats.totalPoints % 100}%` }} />
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-center">
+                <div className="rounded-lg bg-black/20 px-3 py-2"><p className="text-lg font-bold">{gameStats.totalGames}</p><p className="text-[10px] text-white/40">جولة إجمالاً</p></div>
+                <div className="rounded-lg bg-black/20 px-3 py-2"><p className="text-lg font-bold">{gameStats.totalWins}</p><p className="text-[10px] text-white/40">فوز إجمالي</p></div>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-white/75">مهام اليوم</h3>
+                {[
+                  { label: 'العب 3 جولات', current: gameStats.todayGames, target: 3 },
+                  { label: 'ربح جولة', current: gameStats.todayWins, target: 1 },
+                ].map((mission) => (
+                  <div key={mission.label} className="flex items-center justify-between gap-3 rounded-lg bg-black/20 px-3 py-2 text-xs">
+                    <span className="text-white/70">{mission.label}</span>
+                    <span className={mission.current >= mission.target ? 'text-emerald-200' : 'text-white/45'}>{Math.min(mission.current, mission.target)} / {mission.target}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+
+        <section id="game-leaderboard" className="mx-auto max-w-md scroll-mt-24 rounded-2xl border border-white/10 bg-white/[0.03] p-5" dir="rtl">
           <div className="mb-4 flex items-center gap-2">
             <Trophy className="h-4 w-4 text-amber-300" />
             <h2 className="text-sm font-semibold">ترتيب الأصدقاء هذا الأسبوع</h2>

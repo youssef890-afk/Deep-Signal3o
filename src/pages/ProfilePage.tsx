@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import SettingsPanel from '@/components/SettingsPanel';
+import SafetyActions from '@/components/SafetyActions';
 import { supabase } from '@/lib/supabase';
 import { generateAiImage } from '@/lib/aiAssistant';
 
@@ -516,7 +517,7 @@ export default function ProfilePage() {
           الملف الشخصي
         </h1>
 
-        {isOwnProfile && (
+        {isOwnProfile ? (
           <button
             onClick={() => setSettingsOpen(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-colors"
@@ -527,6 +528,20 @@ export default function ProfilePage() {
               الإعدادات
             </span>
           </button>
+        ) : (
+          <SafetyActions
+            targetUserId={profile?.id ?? targetUserId ?? ''}
+            onBlocked={() => {
+              if (user) {
+                try {
+                  localStorage.removeItem(`ds-feed-v1:${user.id}`);
+                } catch (error) {
+                  console.warn('Could not clear cached feed data:', error);
+                }
+              }
+              window.location.replace('/feed');
+            }}
+          />
         )}
       </div>
 

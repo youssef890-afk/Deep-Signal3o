@@ -22,6 +22,7 @@ import RoomsPage from '@/pages/RoomsPage';
 import ReelsPage from '@/pages/ReelsPage';
 import RoomDetailPage from '@/pages/RoomDetailPage';
 import GamesPage from '@/pages/GamesPage';
+import VoiceCardClashPage from '@/pages/VoiceCardClashPage';
 import { Signal, Loader2 } from 'lucide-react';
 
 function ProtectedLayout({ children }: { children: ReactNode }) {
@@ -108,6 +109,7 @@ function AuthGate() {
         <Route path="/rooms/:roomId" element={<ProtectedLayout><RoomDetailPage /></ProtectedLayout>} />
         <Route path="/reels" element={<ProtectedLayout><ReelsPage /></ProtectedLayout>} />
         <Route path="/games" element={<ProtectedLayout><GamesPage /></ProtectedLayout>} />
+        <Route path="/games/voice-card-clash" element={<ProtectedLayout><VoiceCardClashPage /></ProtectedLayout>} />
         <Route path="/chat" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
         <Route path="/chat/:userId" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
         <Route path="/profile" element={<ProtectedLayout><ProfilePage /></ProtectedLayout>} />

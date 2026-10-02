@@ -31,3 +31,7 @@ The service worker caches the app shell and public media, while the feed snapsho
 ### Games and live rooms
 
 Game scores are stored in `game_scores` and the weekly board includes followed accounts. Online tic-tac-toe uses Supabase Realtime Broadcast. Live rooms use browser WebRTC peer-to-peer audio with a public STUN server; some NAT/firewall combinations require a TURN service for reliable production connectivity. Microphone access requires HTTPS or localhost and the user's permission.
+
+### User safety and moderation
+
+Apply the `20261002140000_user_safety_and_privacy.sql` migration to enable server-enforced blocking and user-content reports. Users can report or block accounts from a profile or post menu, and manage blocked accounts in Settings. To enable the report review screen, assign `app_metadata.role = moderator` to trusted accounts using the Supabase Admin API from a secure server environment. Never assign this role through client-editable user metadata or expose the service-role key in the app.

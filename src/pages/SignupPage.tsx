@@ -4,6 +4,7 @@ import {
 } from 'react';
 import {
   Link,
+  useNavigate,
 } from 'react-router-dom';
 import {
   Eye,
@@ -20,10 +21,13 @@ import { useAuth } from '@/context/AuthContext';
 export default function SignupPage() {
   const {
     signUp,
+    verifyEmailOtp,
     resendVerificationCode,
   } = useAuth();
+  const navigate = useNavigate();
 
   const [email, setEmail] = useState('');
+  const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
 
@@ -36,6 +40,7 @@ export default function SignupPage() {
 
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [countdown, setCountdown] = useState(0);
 
   useEffect(() => {
@@ -96,9 +101,29 @@ export default function SignupPage() {
     }
 
     setEmail(cleanEmail);
+    setOtp('');
     setVerificationMode(true);
     setCountdown(60);
-    setSuccessMessage('صيفطنا ليك رابط تأكيد الحساب. كليكي عليه باش يتفعل الحساب وتدخل للتطبيق.');
+    setSuccessMessage('صيفطنا ليك كود تأكيد الحساب فالبريد الإلكتروني. دخلو باش يتفعل الحساب وتدخل للتطبيق.');
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (otp.length !== 6 || verifying) return;
+
+    setError(null);
+    setVerifying(true);
+
+    const result = await verifyEmailOtp(email, otp);
+
+    setVerifying(false);
+
+    if (result.error) {
+      setError(result.error.message);
+      return;
+    }
+
+    navigate('/');
   };
 
   const handleResend = async () => {
@@ -122,7 +147,7 @@ export default function SignupPage() {
 
     setCountdown(60);
     setSuccessMessage(
-      'صيفطنا ليك رابط تأكيد جديد إلى بريدك الإلكتروني.'
+      'صيفطنا ليك كود تأكيد جديد إلى بريدك الإلكتروني.'
     );
   };
 
@@ -153,7 +178,7 @@ export default function SignupPage() {
             </h1>
 
             <p className="mt-4 text-sm leading-7 text-white/60">
-              {successMessage}
+              صيفطنا ليك كود تأكيد الحساب. دخلو لتفعيل الحساب والدخول للتطبيق.
               <br />
               إلا ما بانش الإيميل، شوف Spam / Junk.
             </p>
@@ -183,6 +208,34 @@ export default function SignupPage() {
               </div>
             )}
 
+            <form onSubmit={handleVerifyOtp} className="mt-5 space-y-3">
+              <label htmlFor="signup-otp" className="block text-sm text-white/70">
+                كود التأكيد
+              </label>
+              <input
+                id="signup-otp"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                required
+                value={otp}
+                onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="000000"
+                dir="ltr"
+                className="w-full rounded-xl border border-white/10 bg-[#0d050b] px-4 py-3 text-center text-xl tracking-[0.3em] text-white placeholder:text-white/25 focus:border-pink-500/50 focus:outline-none focus:ring-2 focus:ring-pink-500/20"
+              />
+              <button
+                type="submit"
+                disabled={verifying || otp.length !== 6}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#ff2a78] to-[#ff8a3d] px-4 py-3 font-semibold text-white transition-opacity disabled:opacity-50"
+              >
+                {verifying && <Loader2 className="h-4 w-4 animate-spin" />}
+                تأكيد البريد الإلكتروني
+              </button>
+            </form>
+
             <div className="mt-5">
               {countdown > 0 ? (
                 <p className="text-xs text-white/40">
@@ -203,7 +256,7 @@ export default function SignupPage() {
                   ) : (
                     <RefreshCw className="w-4 h-4" />
                   )}
-                  إعادة إرسال رابط التأكيد
+                  إعادة إرسال كود التأكيد
                 </button>
               )}
             </div>

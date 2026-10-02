@@ -11,9 +11,12 @@ import {
   Image as ImageIcon,
   Video,
   Music2,
+  Loader2,
+  Plus,
 } from 'lucide-react';
 import { CreatePostModal } from '@/components/CreatePostModal';
 import PostSummarizer from '@/components/PostSummarizer';
+import SafetyActions from '@/components/SafetyActions';
 
 interface UserProfile {
   id: string;
@@ -98,9 +101,15 @@ export default function FeedPage() {
     cachedFeed?.posts || []
   );
 
-  const [connections, setConnections] = useState<ConnectionProfile[]>(
-    cachedFeed?.connections || []
-  );
+  const [connections, setConnections] = useState<ConnectionProfile[]>(() => {
+    const cachedConnections = cachedFeed?.connections ?? [];
+    const followedProfiles = cachedConnections.filter((profile) => profile.followedByMe);
+    return followedProfiles.length > 0
+      ? followedProfiles
+      : cachedConnections.filter((profile) => !profile.followedByMe && !profile.followsMe);
+  });
+  const [followingBusyId, setFollowingBusyId] = useState<string | null>(null);
+  const [quickFollowError, setQuickFollowError] = useState('');
 
   const [feedError, setFeedError] = useState<string | null>(null);
 
@@ -145,8 +154,6 @@ export default function FeedPage() {
       if (followersResult.error) throw followersResult.error;
       const followingIds = (followingResult.data ?? []).map((follow) => follow.following_id);
       const followerIds = (followersResult.data ?? []).map((follow) => follow.follower_id);
-      const feedUserIds = [...new Set([user.id, ...followingIds])];
-      const connectionIds = [...new Set([...followingIds, ...followerIds])].filter((id) => id !== user.id);
 
       /*
        * أولاً:
@@ -157,35 +164,54 @@ export default function FeedPage() {
        *
        * بجوج في نفس الوقت.
        */
-      const postsResult = await supabase
-        .from('posts')
-        .select(
-          `
-              id,
-              user_id,
-              image_url,
-              video_url,
-              audio_url,
-              caption,
-              created_at,
-              post_type,
-              background_style,
-              media_urls,
-              video_type
-          `
-        )
-        .order('created_at', {
-          ascending: false,
-        })
-        .in('user_id', feedUserIds)
-        .limit(30);
+      const postColumnOptions = [
+        'id, user_id, image_url, video_url, audio_url, caption, created_at, post_type, background_style, media_urls, video_type',
+        'id, user_id, image_url, video_url, caption, created_at, post_type, background_style, media_urls, video_type',
+        'id, user_id, image_url, video_url, caption, created_at',
+      ];
+      let postsData: Array<{
+        id: string;
+        user_id: string;
+        image_url: string | null;
+        video_url: string | null;
+        audio_url: string | null;
+        caption: string | null;
+        created_at: string;
+        post_type: Post['post_type'] | null;
+        background_style: string | null;
+        media_urls: string[];
+        video_type: Post['video_type'];
+      }> = [];
+      let postsLoaded = false;
+      let lastPostsError: { code?: string; message?: string } | null = null;
 
-      if (postsResult.error) {
-        throw postsResult.error;
+      for (const columns of postColumnOptions) {
+        let postsQuery = supabase
+          .from('posts')
+          .select(columns)
+          .order('created_at', { ascending: false });
+        if (followingIds.length > 0) postsQuery = postsQuery.in('user_id', followingIds);
+
+        const postsResult = await postsQuery.limit(followingIds.length > 0 ? 30 : 100);
+        if (!postsResult.error) {
+          postsData = (postsResult.data ?? []).map((post) => ({
+            audio_url: null,
+            video_url: null,
+            post_type: null,
+            background_style: null,
+            media_urls: [],
+            video_type: null,
+            ...(post as unknown as Record<string, unknown>),
+          })) as unknown as typeof postsData;
+          postsLoaded = true;
+          break;
+        }
+
+        lastPostsError = postsResult.error;
+        if (postsResult.error.code !== '42703') throw postsResult.error;
       }
 
-      const postsData =
-        postsResult.data || [];
+      if (!postsLoaded) throw lastPostsError ?? new Error('تعذر جلب المنشورات');
 
       /*
        * ---------------------------------------
@@ -272,24 +298,55 @@ export default function FeedPage() {
        * ---------------------------------------
        */
       let connectionProfiles: ConnectionProfile[] = [];
-      if (connectionIds.length > 0) {
-        const [connectionProfilesResult, connectionPostsResult] = await Promise.all([
-          supabase.from('profiles')
+      const followedPeopleResult = followingIds.length > 0
+        ? await supabase.from('profiles')
             .select('id, username, full_name, bio, avatar_url')
-            .in('id', connectionIds),
-          supabase.from('posts')
-            .select('user_id, post_type, video_url, audio_url, created_at')
+            .in('id', followingIds)
+        : { data: [], error: null };
+      const suggestedPeopleResult = await supabase.from('profiles')
+        .select('id, username, full_name, bio, avatar_url')
+        .neq('id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(80);
+
+      if (followedPeopleResult.error) console.warn('Followed profiles unavailable:', followedPeopleResult.error);
+      if (suggestedPeopleResult.error) console.warn('Suggested profiles unavailable:', suggestedPeopleResult.error);
+
+      const peopleById = new Map<string, UserProfile>();
+      for (const profile of followedPeopleResult.data ?? []) peopleById.set(profile.id, profile);
+      for (const profile of suggestedPeopleResult.data ?? []) {
+        if (followingIds.includes(profile.id) || followerIds.includes(profile.id)) continue;
+        peopleById.set(profile.id, profile);
+      }
+      const people = [...peopleById.values()].slice(0, 80);
+      const connectionIds = people.map((profile) => profile.id);
+
+      if (connectionIds.length > 0) {
+        const connectionPostsResult = await supabase
+          .from('posts')
+          .select('user_id, post_type, video_url, audio_url, created_at')
+          .in('user_id', connectionIds)
+          .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+          .order('created_at', { ascending: false })
+          .limit(500);
+
+        let connectionPosts = connectionPostsResult.data ?? [];
+        if (connectionPostsResult.error?.code === '42703' && connectionPostsResult.error.message.includes('posts.audio_url')) {
+          const fallbackConnectionPosts = await supabase.from('posts')
+            .select('user_id, post_type, video_url, created_at')
             .in('user_id', connectionIds)
             .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
             .order('created_at', { ascending: false })
-            .limit(500),
-        ]);
-
-        if (connectionProfilesResult.error) throw connectionProfilesResult.error;
-        if (connectionPostsResult.error) throw connectionPostsResult.error;
+            .limit(500);
+          if (fallbackConnectionPosts.error) throw fallbackConnectionPosts.error;
+          connectionPosts = (fallbackConnectionPosts.data ?? []).map((post) => ({ ...post, audio_url: null }));
+        } else if (connectionPostsResult.error) {
+          console.warn('Recent connection posts unavailable:', connectionPostsResult.error);
+          connectionPosts = [];
+        }
 
         const latestPosts = new Map<string, { type: ConnectionProfile['latestPostType']; createdAt: string }>();
-        for (const post of connectionPostsResult.data ?? []) {
+        for (const post of connectionPosts) {
           if (latestPosts.has(post.user_id)) continue;
           const type = post.audio_url
             ? 'audio'
@@ -302,7 +359,7 @@ export default function FeedPage() {
         }
 
         const freshAfter = Date.now() - 24 * 60 * 60 * 1000;
-        connectionProfiles = (connectionProfilesResult.data ?? []).map((profile) => {
+        connectionProfiles = people.map((profile) => {
           const latestPost = latestPosts.get(profile.id);
           return {
             ...profile,
@@ -506,9 +563,19 @@ export default function FeedPage() {
           }
         );
 
-      setPosts(
-        formattedPosts
-      );
+      const visiblePosts = followingIds.length > 0
+        ? formattedPosts
+        : [...formattedPosts]
+          .sort((first, second) => {
+            const firstAgeHours = Math.max(0, (Date.now() - Date.parse(first.created_at)) / 3_600_000);
+            const secondAgeHours = Math.max(0, (Date.now() - Date.parse(second.created_at)) / 3_600_000);
+            const firstScore = (first.likes_count + 1) / Math.pow(firstAgeHours + 2, 1.3);
+            const secondScore = (second.likes_count + 1) / Math.pow(secondAgeHours + 2, 1.3);
+            return secondScore - firstScore;
+          })
+          .slice(0, 30);
+
+      setPosts(visiblePosts);
 
       /*
        * Cache
@@ -516,7 +583,7 @@ export default function FeedPage() {
       feedCache = {
         userId: user.id,
         posts:
-          formattedPosts,
+          visiblePosts,
         connections:
           connectionProfiles,
       };
@@ -535,6 +602,24 @@ export default function FeedPage() {
       setLoading(false);
     }
   }, [cachedFeed?.posts.length, user]);
+
+  async function handleQuickFollow(profileId: string) {
+    if (!user || followingBusyId) return;
+    setFollowingBusyId(profileId);
+    setQuickFollowError('');
+    const { error } = await supabase.from('follows').insert({
+      follower_id: user.id,
+      following_id: profileId,
+    });
+    if (error) {
+      console.error('Quick follow failed:', error);
+      setQuickFollowError('تعذر متابعة هذا الحساب. حاول مرة أخرى.');
+      setFollowingBusyId(null);
+      return;
+    }
+    await loadFeed();
+    setFollowingBusyId(null);
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -1030,33 +1115,31 @@ export default function FeedPage() {
           </p>
         )}
 
-        <section className="mb-5 flex items-center justify-between gap-3" dir="rtl">
-          <div>
-            <p className="text-[11px] font-medium text-rose-300/80">مساحة متابعاتك</p>
-            <h1 className="mt-1 text-xl font-bold text-white sm:text-2xl">الرئيسية</h1>
-          </div>
+        <section className="mb-4 flex justify-start" dir="rtl" aria-label="إضافة منشور">
           <button
             type="button"
             onClick={() => setIsModalOpen(true)}
-            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full bg-gradient-to-r from-rose-500 to-orange-400 px-4 text-xs font-semibold text-white transition hover:brightness-110"
+            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-rose-300/20 bg-rose-400/10 px-3.5 text-xs font-semibold text-rose-100 transition hover:border-rose-300/40 hover:bg-rose-400/15"
           >
-            <span aria-hidden="true" className="text-base leading-none">+</span>
+            <Plus className="h-4 w-4" aria-hidden="true" />
             منشور جديد
           </button>
         </section>
 
         {connections.length > 0 && (
-          <section className="mb-7" dir="rtl" aria-label="المتابعون والمتابَعون">
+          <section className="mb-7" dir="rtl" aria-label={connections.some((profile) => profile.followedByMe) ? 'الحسابات التي تتابعها' : 'أشخاص مقترحون'}>
             <div className="mb-3 flex items-end justify-between gap-3">
               <div>
                 <h2 className="text-sm font-bold">دائرتك</h2>
-                <p className="mt-1 text-[10px] text-white/40">الحسابات التي تتابعها أو تتابعك</p>
+                <p className="mt-1 text-[10px] text-white/40">
+                  {connections.some((profile) => profile.followedByMe) ? 'الحسابات التي تتابعها' : 'اقتراحات من حسابات نشيطة'}
+                </p>
               </div>
               <span className="text-[10px] text-white/35">{connections.length} حساب</span>
             </div>
 
-            <div className="flex gap-4 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {connections.map((profile) => {
+            <div className="flex snap-x snap-mandatory scroll-smooth gap-4 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {connections.slice(0, 24).map((profile) => {
                 const MediaIcon = profile.latestPostType === 'audio'
                   ? Music2
                   : profile.latestPostType === 'video' || profile.latestPostType === 'reel'
@@ -1072,40 +1155,57 @@ export default function FeedPage() {
                       ? 'كتابة جديدة'
                       : profile.latestPostType === 'image'
                         ? 'صورة جديدة'
-                        : profile.followedByMe ? 'تتابعه' : 'يتابعك';
+                        : profile.followedByMe ? 'تتابعه' : 'مقترح لك';
 
                 return (
-                  <button
+                  <div
                     key={profile.id}
-                    type="button"
-                    onClick={() => navigate(`/profile/${profile.id}`)}
-                    aria-label={`${profile.username}، ${activityLabel}، عرض الملف والمنشورات`}
-                    className="group flex w-[76px] shrink-0 flex-col items-center gap-1.5 text-center"
+                    className="relative flex w-[76px] shrink-0 snap-start flex-col items-center gap-1.5 text-center"
                   >
-                    <span className={`relative block h-[66px] w-[66px] rounded-full p-[2.5px] transition-transform group-hover:scale-105 ${profile.hasRecentPost ? 'bg-gradient-to-tr from-rose-500 via-fuchsia-500 to-emerald-400' : 'bg-white/20'}`}>
-                      <span className="flex h-full w-full items-center justify-center rounded-full bg-[#09090d] p-[2px]">
-                        {profile.avatar_url ? (
-                          <img src={profile.avatar_url} alt="" loading="lazy" className="h-full w-full rounded-full object-cover" />
-                        ) : (
-                          <span className="flex h-full w-full items-center justify-center rounded-full bg-white/[0.08] text-lg font-semibold text-white/75">
-                            {profile.username.charAt(0).toUpperCase()}
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/profile/${profile.id}`)}
+                      aria-label={`${profile.username}، ${activityLabel}، عرض الملف والمنشورات`}
+                      className="group flex w-full flex-col items-center gap-1.5 text-center"
+                    >
+                      <span className={`relative block h-[66px] w-[66px] rounded-full p-[2.5px] transition-transform group-hover:scale-105 ${profile.hasRecentPost ? 'bg-gradient-to-tr from-rose-500 via-fuchsia-500 to-emerald-400' : 'bg-white/20'}`}>
+                        <span className="flex h-full w-full items-center justify-center rounded-full bg-[#09090d] p-[2px]">
+                          {profile.avatar_url ? (
+                            <img src={profile.avatar_url} alt="" loading="lazy" decoding="async" className="h-full w-full rounded-full object-cover" />
+                          ) : (
+                            <span className="flex h-full w-full items-center justify-center rounded-full bg-white/[0.08] text-lg font-semibold text-white/75">
+                              {profile.username.charAt(0).toUpperCase()}
+                            </span>
+                          )}
+                        </span>
+                        {profile.hasRecentPost && (
+                          <span className="absolute bottom-0 right-0 grid h-6 w-6 place-items-center rounded-full bg-[#111116] text-rose-300 ring-2 ring-[#09090d]">
+                            <MediaIcon className="h-3.5 w-3.5" />
                           </span>
                         )}
                       </span>
-                      {profile.hasRecentPost && (
-                        <span className="absolute bottom-0 right-0 grid h-6 w-6 place-items-center rounded-full bg-[#111116] text-rose-300 ring-2 ring-[#09090d]">
-                          <MediaIcon className="h-3.5 w-3.5" />
-                        </span>
-                      )}
-                    </span>
-                    <span className="w-full truncate text-[11px] font-medium text-white/85">{profile.username}</span>
-                    <span className={`w-full truncate text-[9px] ${profile.hasRecentPost ? 'text-emerald-300' : 'text-white/40'}`}>
-                      {activityLabel}
-                    </span>
-                  </button>
+                      <span className="w-full truncate text-[11px] font-medium text-white/85">{profile.username}</span>
+                      <span className={`w-full truncate text-[9px] ${profile.hasRecentPost ? 'text-emerald-300' : 'text-white/40'}`}>
+                        {activityLabel}
+                      </span>
+                    </button>
+                    {!profile.followedByMe && (
+                      <button
+                        type="button"
+                        aria-label={`متابعة ${profile.username}`}
+                        title={`متابعة ${profile.username}`}
+                        disabled={followingBusyId !== null}
+                        onClick={() => void handleQuickFollow(profile.id)}
+                        className="absolute right-1 top-0 grid h-6 w-6 place-items-center rounded-full border-2 border-[#09090d] bg-emerald-400 text-neutral-950 shadow-lg transition hover:scale-110 hover:bg-emerald-300 disabled:opacity-60"
+                      >
+                        {followingBusyId === profile.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>
+            {quickFollowError && <p role="alert" className="mt-2 text-[11px] text-rose-300">{quickFollowError}</p>}
           </section>
         )}
 
@@ -1118,7 +1218,7 @@ export default function FeedPage() {
           <div className="flex items-center justify-between mb-4">
 
             <h2 className="text-base font-bold">
-              المنشورات
+              {connections.some((profile) => profile.followedByMe) ? 'منشورات المتابعة' : 'مقترحة لك'}
             </h2>
 
             {loading && (
@@ -1246,6 +1346,27 @@ export default function FeedPage() {
                         </div>
 
                       </button>
+
+                      {post.user_id !== user?.id && <SafetyActions
+                        targetUserId={post.user_id}
+                        targetPostId={post.id}
+                        onBlocked={() => {
+                          const remainingPosts = posts.filter((item) => item.user_id !== post.user_id);
+                          setPosts(remainingPosts);
+                          setConnections((current) => current.filter((item) => item.id !== post.user_id));
+                          if (user) {
+                            const cached = readCachedFeed(user.id);
+                            if (cached) {
+                              feedCache = { ...cached, posts: remainingPosts };
+                              try {
+                                localStorage.setItem(`ds-feed-v1:${user.id}`, JSON.stringify(feedCache));
+                              } catch (error) {
+                                console.warn('Feed cache storage is unavailable:', error);
+                              }
+                            }
+                          }
+                        }}
+                      />}
 
                     </div>
 

@@ -50,17 +50,23 @@ ON public.likes (post_id);
 CREATE INDEX IF NOT EXISTS idx_posts_user_id
 ON public.posts (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_reels_user_id
-ON public.reels (user_id);
+DO $$
+BEGIN
+  IF to_regclass('public.reels') IS NOT NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_reels_user_id ON public.reels (user_id);
+  END IF;
 
-CREATE INDEX IF NOT EXISTS idx_room_members_user_id
-ON public.room_members (user_id);
+  CREATE INDEX IF NOT EXISTS idx_room_members_user_id
+  ON public.room_members (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_rooms_created_by
-ON public.rooms (created_by);
+  CREATE INDEX IF NOT EXISTS idx_rooms_created_by
+  ON public.rooms (created_by);
 
-CREATE INDEX IF NOT EXISTS idx_saved_posts_post_id
-ON public.saved_posts (post_id);
+  IF to_regclass('public.saved_posts') IS NOT NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_saved_posts_post_id ON public.saved_posts (post_id);
+  END IF;
+END
+$$;
 
 
 -- =========================================================
