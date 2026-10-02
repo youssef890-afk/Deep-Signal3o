@@ -40,6 +40,9 @@ export interface Message {
   content: string;
   created_at: string;
   read_at: string | null;
+  message_type?: 'text' | 'audio';
+  audio_url?: string | null;
+  audio_duration_ms?: number | null;
 }
 
 export interface PostWithDetails extends Post {

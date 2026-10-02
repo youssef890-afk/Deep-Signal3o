@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useMessages } from '@/context/MessagesContext';
 import Avatar from '@/components/Avatar';
-import { Send, ArrowLeft, Loader2, MessageCircle } from 'lucide-react';
+import { Send, ArrowLeft, Loader2, MessageCircle, Mic, Square, AudioLines } from 'lucide-react';
 import { formatTime } from '@/utils/format';
 import type { Profile, Message } from '@/types';
 
@@ -19,7 +19,16 @@ export default function ChatPage() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [audioFilter, setAudioFilter] = useState<'natural' | 'warm' | 'bright'>('natural');
+  const [voiceError, setVoiceError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const microphoneRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingStartedAtRef = useRef(0);
 
   // Load conversations list
   useEffect(() => {
@@ -138,7 +147,7 @@ export default function ChatPage() {
           table: 'messages',
         },
         (payload) => {
-          const newMsg = payload.new;
+          const newMsg = payload.new as Message;
           const isRelevant =
             (newMsg.sender_id === user.id && newMsg.receiver_id === activeUserId) ||
             (newMsg.sender_id === activeUserId && newMsg.receiver_id === user.id);
@@ -165,6 +174,105 @@ export default function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const timer = window.setInterval(() => {
+      setRecordingSeconds(Math.floor((Date.now() - recordingStartedAtRef.current) / 1000));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [isRecording]);
+
+  useEffect(() => () => {
+    if (recorderRef.current?.state === 'recording') {
+      recorderRef.current.onstop = null;
+      recorderRef.current.stop();
+    }
+    microphoneRef.current?.getTracks().forEach((track) => track.stop());
+    void audioContextRef.current?.close();
+  }, []);
+
+  const sendVoiceNote = async (blob: Blob, durationMs: number) => {
+    if (!user || !activeUserId || !blob.size) return;
+    const extension = blob.type.includes('mp4') ? 'm4a' : 'webm';
+    const path = `${user.id}/${activeUserId}/${crypto.randomUUID()}.${extension}`;
+    const { error: uploadError } = await supabase.storage.from('voice-notes').upload(path, blob, {
+      contentType: blob.type || 'audio/webm',
+      cacheControl: '3600',
+      upsert: false,
+    });
+    if (uploadError) throw uploadError;
+
+    const { data, error } = await supabase.from('messages').insert({
+      sender_id: user.id,
+      receiver_id: activeUserId,
+      content: '',
+      message_type: 'audio',
+      audio_url: path,
+      audio_duration_ms: durationMs,
+    }).select().single();
+    if (error) {
+      await supabase.storage.from('voice-notes').remove([path]);
+      throw error;
+    }
+    setMessages((previous) => [...previous, data as Message]);
+    void refreshUnread();
+  };
+
+  const startVoiceRecording = async () => {
+    if (!user || !activeUserId || isRecording || sending) return;
+    setVoiceError('');
+    try {
+      const microphone = await navigator.mediaDevices.getUserMedia({ audio: true });
+      microphoneRef.current = microphone;
+      let recordingStream = microphone;
+
+      if (audioFilter !== 'natural') {
+        const context = new AudioContext();
+        audioContextRef.current = context;
+        const source = context.createMediaStreamSource(microphone);
+        const filter = context.createBiquadFilter();
+        filter.type = audioFilter === 'warm' ? 'lowshelf' : 'highshelf';
+        filter.frequency.value = audioFilter === 'warm' ? 240 : 2600;
+        filter.gain.value = audioFilter === 'warm' ? 5 : 3;
+        const destination = context.createMediaStreamDestination();
+        source.connect(filter);
+        filter.connect(destination);
+        recordingStream = destination.stream;
+      }
+
+      const recorder = new MediaRecorder(recordingStream);
+      recorderRef.current = recorder;
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const duration = Date.now() - recordingStartedAtRef.current;
+        const voiceBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        setIsRecording(false);
+        microphoneRef.current?.getTracks().forEach((track) => track.stop());
+        microphoneRef.current = null;
+        void audioContextRef.current?.close();
+        audioContextRef.current = null;
+        setSending(true);
+        void sendVoiceNote(voiceBlob, duration)
+          .catch((error) => setVoiceError(error instanceof Error ? error.message : 'تعذر إرسال التسجيل'))
+          .finally(() => setSending(false));
+      };
+      recordingStartedAtRef.current = Date.now();
+      setRecordingSeconds(0);
+      recorder.start(250);
+      setIsRecording(true);
+    } catch (error) {
+      microphoneRef.current?.getTracks().forEach((track) => track.stop());
+      setVoiceError(error instanceof Error ? error.message : 'تحقق من إذن استخدام الميكروفون');
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
+  };
 
   const handleSend = async () => {
     if (!newMessage.trim() || !user || !activeUserId) return;
@@ -226,7 +334,7 @@ export default function ChatPage() {
                   </div>
                   <p className="text-xs text-neutral-500 truncate mt-0.5">
                     {conv.lastMessage?.sender_id === user?.id ? 'You: ' : ''}
-                    {conv.lastMessage?.content || 'No messages'}
+                    {conv.lastMessage?.message_type === 'audio' ? 'رسالة صوتية' : conv.lastMessage?.content || 'لا توجد رسائل'}
                   </p>
                 </div>
                 {conv.unreadCount > 0 && (
@@ -296,7 +404,11 @@ export default function ChatPage() {
                             : 'bg-neutral-800 text-neutral-100 rounded-bl-md'
                         }`}
                       >
-                        <p>{msg.content}</p>
+                        {msg.message_type === 'audio' && msg.audio_url ? (
+                          <VoiceNotePlayer path={msg.audio_url} durationMs={msg.audio_duration_ms ?? 0} />
+                        ) : (
+                          <p>{msg.content}</p>
+                        )}
                         <p className={`text-[10px] mt-1 ${isMine ? 'text-white/60' : 'text-neutral-500'}`}>
                           {formatTime(msg.created_at)}
                         </p>
@@ -310,6 +422,21 @@ export default function ChatPage() {
 
             {/* Input */}
             <div className="px-4 py-3 border-t border-white/10">
+              <div className="mb-3 flex flex-wrap items-center gap-2" dir="rtl">
+                <label className="flex items-center gap-1.5 text-[11px] text-white/50">
+                  <AudioLines className="h-4 w-4 text-emerald-300" /> فلتر الصوت
+                  <select value={audioFilter} onChange={(event) => setAudioFilter(event.target.value as typeof audioFilter)} disabled={isRecording} className="rounded-lg border border-white/10 bg-neutral-900 px-2 py-1.5 text-[11px] text-white outline-none disabled:opacity-40">
+                    <option value="natural">طبيعي</option>
+                    <option value="warm">دافئ</option>
+                    <option value="bright">واضح</option>
+                  </select>
+                </label>
+                <button type="button" onClick={isRecording ? stopVoiceRecording : () => void startVoiceRecording()} disabled={sending || !activeUserId} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold transition disabled:opacity-40 ${isRecording ? 'bg-rose-500/20 text-rose-200' : 'bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25'}`}>
+                  {isRecording ? <Square className="h-3.5 w-3.5 fill-current" /> : <Mic className="h-4 w-4" />}
+                  {isRecording ? `إيقاف التسجيل ${recordingSeconds}s` : sending ? 'جارٍ الإرسال...' : 'رسالة صوتية'}
+                </button>
+                {voiceError && <p role="alert" className="w-full text-[10px] text-rose-300">{voiceError}</p>}
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
@@ -344,6 +471,29 @@ export default function ChatPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function VoiceNotePlayer({ path, durationMs }: { path: string; durationMs: number }) {
+  const [url, setUrl] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    void supabase.storage.from('voice-notes').createSignedUrl(path, 60 * 60).then(({ data, error: signingError }) => {
+      if (!active) return;
+      if (signingError || !data?.signedUrl) setError('تعذر فتح الرسالة الصوتية');
+      else setUrl(data.signedUrl);
+    });
+    return () => { active = false; };
+  }, [path]);
+
+  if (error) return <p className="text-xs text-white/60">{error}</p>;
+  return (
+    <div className="min-w-[220px] space-y-1">
+      {url ? <audio src={url} controls preload="none" className="h-9 w-full" /> : <span className="text-xs text-white/50">جارٍ تحميل التسجيل...</span>}
+      {durationMs > 0 && <span className="block text-[9px] text-white/45">{Math.round(durationMs / 1000)} ثانية</span>}
     </div>
   );
 }

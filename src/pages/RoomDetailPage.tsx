@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { useLiveRoomAudio } from '@/hooks/useLiveRoomAudio';
 import {
   Loader2,
   Mic,
@@ -74,6 +75,9 @@ export default function RoomDetailPage() {
 
   const [showAnswer, setShowAnswer] =
     useState(false);
+
+  const isMember = members.some((member) => member.user_id === user?.id);
+  const liveAudio = useLiveRoomAudio(roomId ?? '', user?.id, isMember, isMuted);
 
   useEffect(() => {
     if (!roomId) {
@@ -373,12 +377,6 @@ export default function RoomDetailPage() {
   const isCreator =
     user?.id === room.created_by;
 
-  const isMember =
-    members.some(
-      (member) =>
-        member.user_id === user?.id
-    );
-
   const seats = Array.from({
     length: 6,
   });
@@ -438,18 +436,17 @@ export default function RoomDetailPage() {
 
           {isMember && (
             <button
-              onClick={() =>
-                setIsMuted(
-                  (previous) => !previous
-                )
-              }
+              onClick={() => liveAudio.audioStarted
+                ? setIsMuted((previous) => !previous)
+                : void liveAudio.startAudio()}
+              aria-label={!liveAudio.audioStarted ? 'تشغيل الميكروفون' : isMuted ? 'إلغاء كتم الميكروفون' : 'كتم الميكروفون'}
               className={`p-2 rounded-full ${
-                isMuted
+                !liveAudio.audioStarted || isMuted
                   ? 'bg-red-500/20 text-red-400'
                   : 'bg-green-500/20 text-green-400'
               }`}
             >
-              {isMuted ? (
+              {!liveAudio.audioStarted || isMuted ? (
                 <MicOff className="w-4 h-4" />
               ) : (
                 <Mic className="w-4 h-4" />
@@ -457,6 +454,15 @@ export default function RoomDetailPage() {
             </button>
           )}
         </div>
+
+        {liveAudio.error && <p role="alert" className="mb-4 text-xs text-rose-300">{liveAudio.error}</p>}
+        {liveAudio.remoteAudio.length > 0 && (
+          <div className="mb-4 space-y-2">
+            {liveAudio.remoteAudio.map((remote) => (
+              <RoomRemoteAudio key={remote.userId} userId={remote.userId} stream={remote.stream} />
+            ))}
+          </div>
+        )}
 
         <div className="grid grid-cols-3 gap-4">
           {seats.map((_, index) => {
@@ -596,6 +602,25 @@ export default function RoomDetailPage() {
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+function RoomRemoteAudio({ userId, stream }: { userId: string; stream: MediaStream }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.srcObject = stream;
+    void audio.play().catch(() => undefined);
+    return () => { audio.srcObject = null; };
+  }, [stream]);
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl bg-black/20 px-3 py-2" dir="ltr">
+      <span className="min-w-0 flex-1 truncate text-[10px] text-white/50">{userId.slice(0, 8)}</span>
+      <audio ref={audioRef} autoPlay controls className="h-8 w-40" />
     </div>
   );
 }

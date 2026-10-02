@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Heart, MessageCircle, Share2, MoreHorizontal } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 
 interface PostProps {
   post: {

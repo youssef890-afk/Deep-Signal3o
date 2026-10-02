@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 
 import Avatar from '@/components/Avatar';
+import PostSummarizer from '@/components/PostSummarizer';
 
 interface Reel {
   id: string;
@@ -71,14 +72,20 @@ export default function ReelsPage() {
         .not('video_url', 'is', null)
         .order('created_at', {
           ascending: false,
-        });
+        })
+        .limit(30);
 
       if (error) {
         throw error;
       }
 
       setReels(
-        (data as Reel[]) || []
+        (data ?? []).map((reel) => ({
+          ...reel,
+          profile: Array.isArray(reel.profile)
+            ? reel.profile[0] ?? null
+            : reel.profile,
+        })) as Reel[]
       );
     } catch (error) {
       console.error(
@@ -120,11 +127,12 @@ export default function ReelsPage() {
       snap-mandatory
       scrollbar-hide
     ">
-      {reels.map((reel) => (
+      {reels.map((reel, index) => (
         <ReelItem
           key={reel.id}
           reel={reel}
           navigate={navigate}
+          preloadNext={index <= 1}
         />
       ))}
     </main>
@@ -134,9 +142,11 @@ export default function ReelsPage() {
 function ReelItem({
   reel,
   navigate,
+  preloadNext,
 }: {
   reel: Reel;
   navigate: ReturnType<typeof useNavigate>;
+  preloadNext: boolean;
 }) {
   const videoRef =
     useRef<HTMLVideoElement>(null);
@@ -159,8 +169,9 @@ function ReelItem({
   useEffect(() => {
     const element =
       containerRef.current;
+    const video = videoRef.current;
 
-    if (!element) return;
+    if (!element || !video) return;
 
     const observer =
       new IntersectionObserver(
@@ -168,19 +179,15 @@ function ReelItem({
           const entry =
             entries[0];
 
-          if (!videoRef.current) {
-            return;
-          }
-
           if (entry.isIntersecting) {
             setIsVisible(true);
 
             /*
              * يبدأ Muted
              */
-            videoRef.current.muted = true;
+            video.muted = true;
 
-            void videoRef.current
+            void video
               .play()
               .then(() => {
                 setIsPlaying(true);
@@ -196,7 +203,7 @@ function ReelItem({
              * أي Reel خرج من الشاشة
              * يتوقف مباشرة.
              */
-            videoRef.current.pause();
+            video.pause();
 
             setIsPlaying(false);
           }
@@ -211,9 +218,7 @@ function ReelItem({
     return () => {
       observer.disconnect();
 
-      if (videoRef.current) {
-        videoRef.current.pause();
-      }
+      video.pause();
     };
   }, []);
 
@@ -308,11 +313,7 @@ function ReelItem({
         loop
         playsInline
         muted
-        preload={
-          isVisible
-            ? 'auto'
-            : 'metadata'
-        }
+        preload={isVisible || preloadNext ? 'auto' : 'metadata'}
         onClick={togglePlay}
         className="
           h-full
@@ -418,6 +419,8 @@ function ReelItem({
             {reel.caption}
           </p>
         )}
+
+        {reel.caption && <PostSummarizer text={reel.caption} />}
 
         <div className="
           flex

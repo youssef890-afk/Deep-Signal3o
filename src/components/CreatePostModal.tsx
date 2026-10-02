@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   X,
   FileText,
   Image as ImageIcon,
   Video,
+  Music2,
   ArrowLeft,
   Send,
   Loader2,
@@ -14,8 +15,9 @@ import {
 
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import SmartPostAssistant from '@/components/SmartPostAssistant';
 
-type ContentType = 'none' | 'text' | 'image' | 'video';
+type ContentType = 'none' | 'text' | 'image' | 'video' | 'audio';
 
 type VideoType = 'reel' | 'video';
 
@@ -97,13 +99,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (!isOpen) {
-      resetState();
-    }
-  }, [isOpen]);
-
-  function resetState() {
+  const resetState = useCallback(() => {
     previewUrls.forEach((url) => {
       URL.revokeObjectURL(url);
     });
@@ -115,7 +111,22 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
     setPreviewUrls([]);
     setSelectedBackground('sunset');
     setLoading(false);
-  }
+  }, [previewUrls]);
+
+  useEffect(() => {
+    if (isOpen) return;
+
+    setPreviewUrls((urls) => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+      return urls.length ? [] : urls;
+    });
+    setContentType((current) => current === 'none' ? current : 'none');
+    setVideoType((current) => current === 'reel' ? current : 'reel');
+    setContent((current) => current ? '' : current);
+    setSelectedFiles((current) => current.length ? [] : current);
+    setSelectedBackground((current) => current === 'sunset' ? current : 'sunset');
+    setLoading((current) => current ? false : current);
+  }, [isOpen]);
 
   function closeModal() {
     if (loading) return;
@@ -125,6 +136,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
   }
 
   function handleSelectType(type: ContentType) {
+    previewUrls.forEach((url) => URL.revokeObjectURL(url));
     setContentType(type);
 
     setSelectedFiles([]);
@@ -153,6 +165,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         URL.createObjectURL(file)
       );
 
+      previewUrls.forEach((url) => URL.revokeObjectURL(url));
       setSelectedFiles(imageFiles);
       setPreviewUrls(urls);
     }
@@ -166,8 +179,18 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
 
       const url = URL.createObjectURL(videoFile);
 
+      previewUrls.forEach((previewUrl) => URL.revokeObjectURL(previewUrl));
       setSelectedFiles([videoFile]);
       setPreviewUrls([url]);
+    }
+
+    if (contentType === 'audio') {
+      const audioFile = files.find((file) => file.type.startsWith('audio/'));
+      if (!audioFile) return;
+
+      previewUrls.forEach((url) => URL.revokeObjectURL(url));
+      setSelectedFiles([audioFile]);
+      setPreviewUrls([URL.createObjectURL(audioFile)]);
     }
 
     event.target.value = '';
@@ -257,11 +280,17 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
       }
     }
 
+    if (contentType === 'audio' && selectedFiles.length !== 1) {
+      alert('اختار ملفاً صوتياً واحداً.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      let imageUrls: string[] = [];
+      const imageUrls: string[] = [];
       let videoUrl: string | null = null;
+      let audioUrl: string | null = null;
 
       /*
        * TEXT POST
@@ -357,6 +386,24 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
         }
       }
 
+      if (contentType === 'audio') {
+        audioUrl = await uploadFile(selectedFiles[0], user.id);
+        const { error } = await supabase
+          .from('posts')
+          .insert({
+            user_id: user.id,
+            post_type: 'audio',
+            caption: content.trim() || null,
+            audio_url: audioUrl,
+            media_urls: [audioUrl],
+            image_url: null,
+            video_url: null,
+            video_type: null,
+          });
+
+        if (error) throw new Error(`خطأ في حفظ الملف الصوتي: ${error.message}`);
+      }
+
       alert('تم نشر المحتوى بنجاح 🎉');
 
       onPostCreated?.();
@@ -436,6 +483,8 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                     ? 'منشور نصي'
                     : contentType === 'image'
                     ? 'منشور صور'
+                    : contentType === 'audio'
+                    ? 'منشور صوتي'
                     : 'فيديو / Reels'}
                 </h2>
 
@@ -472,7 +521,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
               اختار نوع المحتوى اللي بغيتي تنشر:
             </p>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
 
               {/* TEXT */}
               <button
@@ -573,6 +622,17 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 </span>
               </button>
 
+              <button
+                type="button"
+                onClick={() => handleSelectType('audio')}
+                className="group rounded-2xl border border-white/10 bg-neutral-900 p-4 transition-all hover:border-emerald-400/50"
+              >
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-500">
+                  <Music2 className="h-6 w-6" />
+                </div>
+                <span className="text-xs font-semibold">صوت / تلاوة</span>
+              </button>
+
             </div>
 
           </div>
@@ -633,6 +693,8 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 focus:border-rose-500/50
               "
             />
+
+            <SmartPostAssistant text={content} onApply={setContent} />
 
             <div className="flex justify-between text-[11px] text-neutral-500">
               <span>
@@ -998,6 +1060,8 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
               "
             />
 
+            <SmartPostAssistant text={content} onApply={setContent} />
+
             {/* VIDEO PREVIEW */}
             {previewUrls[0] && (
               <div className="
@@ -1096,6 +1160,42 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 : 'الفيديو'}
             </button>
 
+          </div>
+        )}
+
+        {contentType === 'audio' && (
+          <div className="space-y-5 p-5" dir="rtl">
+            <textarea
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder="عنوان أو وصف اختياري للتسجيل الصوتي..."
+              maxLength={500}
+              className="min-h-[90px] w-full resize-none rounded-2xl border border-white/10 bg-neutral-900 p-4 text-sm text-white placeholder:text-neutral-500 focus:border-emerald-400/50 focus:outline-none"
+            />
+
+            {previewUrls[0] && (
+              <div className="rounded-2xl border border-emerald-400/20 bg-neutral-900 p-4">
+                <audio src={previewUrls[0]} controls className="w-full" />
+                <p className="mt-2 truncate text-xs text-white/50">{selectedFiles[0]?.name}</p>
+              </div>
+            )}
+
+            <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/20 bg-neutral-900 transition hover:border-emerald-400/50">
+              <Music2 className="mb-2 h-8 w-8 text-emerald-300" />
+              <span className="text-sm font-semibold">{selectedFiles.length ? 'تغيير الملف الصوتي' : 'اختيار ملف صوتي'}</span>
+              <span className="mt-1 text-[11px] text-neutral-500">MP3 أو WAV أو أي صيغة صوت يدعمها المتصفح</span>
+              <input type="file" accept="audio/*" onChange={handleFilesChange} className="hidden" />
+            </label>
+
+            <button
+              type="button"
+              onClick={handlePublish}
+              disabled={loading || selectedFiles.length !== 1}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 py-3.5 font-bold text-white transition disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+              نشر التسجيل الصوتي
+            </button>
           </div>
         )}
 

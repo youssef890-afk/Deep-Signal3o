@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { Search as SearchIcon, X, MessageSquare, Loader2 } from 'lucide-react';
+import { Search as SearchIcon, MessageSquare, Loader2 } from 'lucide-react';
 
 interface Profile {
   id: string;

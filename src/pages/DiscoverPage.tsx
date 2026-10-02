@@ -28,7 +28,7 @@ export default function DiscoverPage() {
         .select('following_id')
         .eq('follower_id', user.id);
 
-      const followingIds = new Set((following || []).map((f: any) => f.following_id));
+      const followingIds = new Set((following || []).map((f) => f.following_id));
       followingIds.add(user.id);
 
       const { data: profiles } = await supabase

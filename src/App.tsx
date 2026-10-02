@@ -1,14 +1,18 @@
+import { useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { MessagesProvider } from '@/context/MessagesContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import MobileNav from '@/components/MobileNav';
+import Navbar from '@/components/Navbar';
+import Sidebar from '@/components/Sidebar';
 import PageBackground from '@/components/PageBackground';
 import LoginPage from '@/pages/LoginPage';
 import SignupPage from '@/pages/SignupPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import ResetPasswordPage from '@/pages/ResetPasswordPage';
+import AuthCallbackPage from '@/pages/AuthCallbackPage';
 import FeedPage from '@/pages/FeedPage';
 import ChatPage from '@/pages/ChatPage';
 import ProfilePage from '@/pages/ProfilePage';
@@ -17,21 +21,33 @@ import DiscoverPage from '@/pages/DiscoverPage';
 import RoomsPage from '@/pages/RoomsPage';
 import ReelsPage from '@/pages/ReelsPage';
 import RoomDetailPage from '@/pages/RoomDetailPage';
+import GamesPage from '@/pages/GamesPage';
 import { Signal, Loader2 } from 'lucide-react';
-import type { ReactNode } from 'react';
 
 function ProtectedLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
+  const [direction, setDirection] = useState<'rtl' | 'ltr'>(() =>
+    localStorage.getItem('ds-direction') === 'ltr' ? 'ltr' : 'rtl'
+  );
+
+  useEffect(() => {
+    localStorage.setItem('ds-direction', direction);
+  }, [direction]);
+
   return (
-    <div className="min-h-screen relative">
+    <div className="min-h-screen relative overflow-x-hidden bg-[#08080D] text-white" dir={direction} lang={direction === 'rtl' ? 'ar' : 'en'}>
       <PageBackground />
-      <main className="relative z-10 min-h-screen pb-[92px]">
-        <AnimatePresence mode="wait">
-          <div key={location.pathname}>
-            {children}
-          </div>
-        </AnimatePresence>
-      </main>
+      <Sidebar />
+      <div className="relative z-10 min-h-screen lg:pl-16 xl:pl-60">
+        <Navbar direction={direction} onToggleDirection={() => setDirection((current) => current === 'rtl' ? 'ltr' : 'rtl')} />
+        <main className="min-h-[calc(100vh-72px)] pb-[92px] lg:pb-8">
+          <AnimatePresence mode="wait">
+            <div key={location.pathname}>
+              {children}
+            </div>
+          </AnimatePresence>
+        </main>
+      </div>
       <MobileNav />
     </div>
   );
@@ -71,6 +87,7 @@ function AuthGate() {
   if (!session) {
     return (
       <Routes>
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -83,14 +100,17 @@ function AuthGate() {
   return (
     <MessagesProvider>
       <Routes>
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/feed" element={<ProtectedLayout><FeedPage /></ProtectedLayout>} />
         <Route path="/search" element={<ProtectedLayout><SearchPage /></ProtectedLayout>} />
         <Route path="/discover" element={<ProtectedLayout><DiscoverPage /></ProtectedLayout>} />
         <Route path="/rooms" element={<ProtectedLayout><RoomsPage /></ProtectedLayout>} />
         <Route path="/rooms/:roomId" element={<ProtectedLayout><RoomDetailPage /></ProtectedLayout>} />
         <Route path="/reels" element={<ProtectedLayout><ReelsPage /></ProtectedLayout>} />
+        <Route path="/games" element={<ProtectedLayout><GamesPage /></ProtectedLayout>} />
         <Route path="/chat" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
         <Route path="/chat/:userId" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
+        <Route path="/profile" element={<ProtectedLayout><ProfilePage /></ProtectedLayout>} />
         <Route path="/profile/:userId" element={<ProtectedLayout><ProfilePage /></ProtectedLayout>} />
         <Route path="*" element={<Navigate to="/feed" replace />} />
       </Routes>

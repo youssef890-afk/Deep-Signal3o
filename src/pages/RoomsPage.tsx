@@ -3,8 +3,13 @@ import { motion } from 'framer-motion';
 import { DSRooms } from '@/components/icons/BrandIcons';
 import { Plus, Users } from 'lucide-react';
 
+interface Room {
+  id: string;
+  name: string;
+}
+
 export default function RoomsPage() {
-  const [rooms] = useState<any[]>([]);
+  const [rooms] = useState<Room[]>([]);
 
   return (
     <div className="min-h-screen bg-[#08080D] relative">
@@ -53,7 +58,7 @@ export default function RoomsPage() {
           </motion.div>
         ) : (
           <div className="space-y-3">
-            {rooms.map((room: any) => (
+            {rooms.map((room) => (
               <div key={room.id} className="glass rounded-2xl p-4">
                 {room.name}
               </div>

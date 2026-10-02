@@ -21,7 +21,7 @@ export default function LoginPage() {
     const result = await signIn(email.trim(), password);
     setLoading(false);
     if (result.error) {
-      setError(result.error);
+      setError(result.error.message);
       return;
     }
     navigate('/feed', { replace: true });
@@ -30,13 +30,15 @@ export default function LoginPage() {
   const handleGoogle = async () => {
     setError(null);
     setGoogleLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: `${window.location.origin}/feed` },
-    });
-    if (error) {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/auth/callback?flow=oauth` },
+      });
+      if (error) throw error;
+    } catch (error) {
       setGoogleLoading(false);
-      setError(error.message);
+      setError(error instanceof Error ? error.message : 'تعذر تسجيل الدخول عبر Google');
     }
   };
 

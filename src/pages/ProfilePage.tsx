@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import SettingsPanel from '@/components/SettingsPanel';
 import { supabase } from '@/lib/supabase';
+import { generateAiImage } from '@/lib/aiAssistant';
 
 import {
   UserPlus,
@@ -14,8 +15,9 @@ import {
   X,
   Check,
   Grid,
-  LogOut,
   Settings,
+  Music2,
+  WandSparkles,
 } from 'lucide-react';
 
 interface ProfileData {
@@ -23,6 +25,7 @@ interface ProfileData {
   username: string;
   full_name: string | null;
   avatar_url: string | null;
+  cover_url: string | null;
   bio: string | null;
   display_id: string;
 }
@@ -30,13 +33,24 @@ interface ProfileData {
 interface PostData {
   id: string;
   image_url: string | null;
+  video_url: string | null;
+  audio_url: string | null;
+  media_urls: string[] | null;
+  post_type: 'text' | 'image' | 'video' | 'reel' | 'audio' | null;
   caption: string | null;
   created_at: string;
 }
 
+interface ProfileBadge {
+  id: string;
+  label: string;
+  className: string;
+}
+
 export default function ProfilePage() {
   const { userId } = useParams<{ userId: string }>();
-  const { user, signOut } = useAuth();
+  const { session } = useAuth();
+  const user = session?.user ?? null;
   const navigate = useNavigate();
 
   const targetUserId = userId || user?.id;
@@ -44,6 +58,8 @@ export default function ProfilePage() {
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [userPosts, setUserPosts] = useState<PostData[]>([]);
+  const [profileBadges, setProfileBadges] = useState<ProfileBadge[]>([]);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
 
@@ -59,7 +75,7 @@ export default function ProfilePage() {
   const [bio, setBio] = useState('');
 
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState<'avatar' | 'cover' | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // ============================================
@@ -68,11 +84,13 @@ export default function ProfilePage() {
 
   const loadProfileData = useCallback(async () => {
     if (!targetUserId) {
+      setProfileError('سجل الدخول باش تشوف الملف الشخصي ديالك.');
       setLoading(false);
       return;
     }
 
     setLoading(true);
+    setProfileError(null);
 
     try {
       // جلب البروفايل
@@ -95,7 +113,7 @@ export default function ProfilePage() {
       // جلب منشورات المستخدم
       const { data: posts, error: postsError } = await supabase
         .from('posts')
-        .select('id, image_url, caption, created_at')
+        .select('id, image_url, video_url, audio_url, media_urls, post_type, caption, created_at')
         .eq('user_id', targetUserId)
         .order('created_at', { ascending: false });
 
@@ -103,7 +121,22 @@ export default function ProfilePage() {
         throw postsError;
       }
 
-      setUserPosts((posts as PostData[]) || []);
+      const loadedPosts = (posts as PostData[]) || [];
+      setUserPosts(loadedPosts);
+
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const recentPosts = loadedPosts.filter((post) => Date.parse(post.created_at) >= Date.parse(weekAgo)).length;
+      const { data: scores } = await supabase
+        .from('game_scores')
+        .select('points')
+        .eq('user_id', targetUserId)
+        .gte('created_at', weekAgo);
+      const weeklyPoints = (scores ?? []).reduce((sum, score) => sum + score.points, 0);
+      const nextBadges: ProfileBadge[] = [];
+      if (loadedPosts.length >= 5) nextBadges.push({ id: 'creator', label: 'صانع محتوى', className: 'border-rose-300/20 bg-rose-300/10 text-rose-200' });
+      if (recentPosts >= 3) nextBadges.push({ id: 'active', label: 'نشيط هذا الأسبوع', className: 'border-emerald-300/20 bg-emerald-300/10 text-emerald-200' });
+      if (weeklyPoints >= 15) nextBadges.push({ id: 'gamer', label: 'بطل الألعاب', className: 'border-amber-300/20 bg-amber-300/10 text-amber-200' });
+      setProfileBadges(nextBadges);
 
       // عدد المتابعين
       const {
@@ -163,44 +196,30 @@ export default function ProfilePage() {
       }
     } catch (error) {
       console.error('Error loading profile:', error);
+      setProfileError('ما قدرناش نحمّلو الملف الشخصي. تحقق من الاتصال وحاول مرة أخرى.');
     } finally {
       setLoading(false);
     }
   }, [targetUserId, user, isOwnProfile]);
 
   useEffect(() => {
-    const _tProfile = setTimeout(() => { setLoading(false); }, 3000);
-    void loadProfileData().finally(() => clearTimeout(_tProfile));
+    if (!user?.id || !targetUserId || isOwnProfile) return;
+
+    void supabase.from('profile_views').insert({
+      profile_id: targetUserId,
+      viewer_id: user.id,
+    }).then(({ error }) => {
+      if (error) console.error('Profile view could not be recorded:', error);
+    });
+  }, [isOwnProfile, targetUserId, user?.id]);
+
+  useEffect(() => {
+    void loadProfileData();
   }, [loadProfileData]);
 
   // ============================================
   // تسجيل الخروج
   // ============================================
-
-  async function handleLogout() {
-    if (loggingOut) {
-      return;
-    }
-
-    setLoggingOut(true);
-
-    try {
-      await signOut();
-
-      // نرجعو مباشرة لصفحة Login
-      navigate('/login', {
-        replace: true,
-      });
-    } catch (error) {
-      console.error('Logout error:', error);
-
-      alert(
-        'وقع مشكل أثناء تسجيل الخروج. حاول مرة أخرى.'
-      );
-    } finally {
-      setLoggingOut(false);
-    }
-  }
 
   // ============================================
   // Follow / Unfollow
@@ -280,7 +299,7 @@ export default function ProfilePage() {
         file.name.split('.').pop() || 'jpg';
 
       const fileName =
-        `${user.id}_avatar.${fileExtension}`;
+        `${user.id}/${user.id}_avatar.${fileExtension}`;
 
       const { error: uploadError } =
         await supabase.storage
@@ -333,6 +352,41 @@ export default function ProfilePage() {
       );
     } finally {
       setUploadingAvatar(false);
+    }
+  }
+
+  async function handleGenerateProfileImage(kind: 'avatar' | 'cover') {
+    if (!user || !isOwnProfile || generatingImage) return;
+    setGeneratingImage(kind);
+
+    try {
+      const prompt = kind === 'avatar'
+        ? 'Create a polished, original square profile avatar illustration for a social app. Do not include text, logos, or recognizable people.'
+        : 'Create an elegant abstract 16:9 social profile cover with a calm dark background and subtle emerald, rose, and gold details. No text or logos.';
+      const base64 = await generateAiImage(prompt);
+      const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+      const filePath = `${user.id}/generated-${kind}-${Date.now()}.png`;
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, new Blob([bytes], { type: 'image/png' }), {
+          cacheControl: '3600',
+          contentType: 'image/png',
+          upsert: false,
+        });
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      const url = data.publicUrl;
+      const column = kind === 'avatar' ? 'avatar_url' : 'cover_url';
+      const { error: updateError } = await supabase.from('profiles').update({ [column]: url }).eq('id', user.id);
+      if (updateError) throw updateError;
+
+      setProfile((current) => current ? { ...current, [column]: url } : current);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر توليد الصورة';
+      alert(`توليد الصورة غير متاح: ${message}. تأكد من نشر Edge Function وضبط OPENAI_API_KEY.`);
+    } finally {
+      setGeneratingImage(null);
     }
   }
 
@@ -418,8 +472,13 @@ export default function ProfilePage() {
 
   if (!profile) {
     return (
-      <div className="flex justify-center items-center min-h-[60vh] text-neutral-500">
-        الملف الشخصي غير موجود
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 px-4 text-center text-neutral-500" dir="rtl">
+        <p>{profileError || 'الملف الشخصي غير موجود'}</p>
+        {profileError && (
+          <button type="button" onClick={() => void loadProfileData()} className="rounded-full bg-white/[0.08] px-4 py-2 text-xs font-semibold text-white hover:bg-white/[0.14]">
+            إعادة المحاولة
+          </button>
+        )}
       </div>
     );
   }
@@ -485,6 +544,24 @@ export default function ProfilePage() {
           shadow-xl
         "
       >
+
+        <div
+          className="relative mb-5 flex h-32 items-end overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-emerald-950 via-neutral-900 to-rose-950 bg-cover bg-center p-3"
+          style={profile.cover_url ? { backgroundImage: `linear-gradient(0deg, rgba(0,0,0,.7), transparent), url(${profile.cover_url})` } : undefined}
+        >
+          <span className="text-[10px] font-medium text-white/65">غلاف الملف الشخصي</span>
+          {isOwnProfile && (
+            <button
+              type="button"
+              onClick={() => void handleGenerateProfileImage('cover')}
+              disabled={generatingImage !== null}
+              className="mr-auto inline-flex items-center gap-1.5 rounded-lg bg-black/45 px-2.5 py-1.5 text-[10px] font-medium text-white transition hover:bg-black/65 disabled:opacity-50"
+            >
+              {generatingImage === 'cover' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <WandSparkles className="h-3.5 w-3.5" />}
+              توليد غلاف
+            </button>
+          )}
+        </div>
 
         {/* معلومات المستخدم */}
 
@@ -570,6 +647,18 @@ export default function ProfilePage() {
                 />
               </label>
             )}
+            {isOwnProfile && (
+              <button
+                type="button"
+                onClick={() => void handleGenerateProfileImage('avatar')}
+                disabled={generatingImage !== null}
+                title="توليد صورة بروفايل بالذكاء الاصطناعي"
+                aria-label="توليد صورة بروفايل بالذكاء الاصطناعي"
+                className="absolute bottom-0 left-0 grid h-7 w-7 place-items-center rounded-full border border-white/20 bg-emerald-600 text-white shadow-lg disabled:opacity-50"
+              >
+                {generatingImage === 'avatar' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <WandSparkles className="h-3.5 w-3.5" />}
+              </button>
+            )}
           </div>
 
           {/* الاسم */}
@@ -626,6 +715,16 @@ export default function ProfilePage() {
               >
                 {profile.bio}
               </p>
+            )}
+
+            {profileBadges.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {profileBadges.map((badge) => (
+                  <span key={badge.id} className={`rounded-full border px-2 py-1 text-[9px] font-semibold ${badge.className}`}>
+                    {badge.label}
+                  </span>
+                ))}
+              </div>
             )}
 
           </div>
@@ -1095,6 +1194,7 @@ export default function ProfilePage() {
             className="
               grid
               grid-cols-2
+              sm:grid-cols-3
               gap-1
             "
           >
@@ -1108,9 +1208,22 @@ export default function ProfilePage() {
                   relative
                 "
               >
-                {post.image_url ? (
+                {post.audio_url ? (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-emerald-950 to-neutral-950 p-3">
+                    <Music2 className="h-8 w-8 text-emerald-300" />
+                    <audio src={post.audio_url} controls className="w-full" />
+                  </div>
+                ) : post.video_url ? (
+                  <video
+                    src={post.video_url}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (post.media_urls?.[0] || post.image_url) ? (
                   <img
-                    src={post.image_url}
+                    src={post.media_urls?.[0] || post.image_url || undefined}
                     alt={
                       post.caption ||
                       'Post'

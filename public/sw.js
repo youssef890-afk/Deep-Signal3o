@@ -1,35 +1,67 @@
-const CACHE_NAME = 'deep-signal-v2';
-const urlsToCache = ['/', '/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png'];
+const CACHE_NAME = 'deep-signal-v3';
+const APP_SHELL = ['/', '/index.html', '/manifest.json'];
+const MAX_CACHED_REQUESTS = 100;
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache).catch(() => {}))
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.addAll(APP_SHELL).catch(() => undefined);
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((key) => key.startsWith('deep-signal-') && key !== CACHE_NAME).map((key) => caches.delete(key)));
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-  if (event.request.url.includes('/api/') || event.request.url.includes('supabase')) return;
+  const request = event.request;
+  if (request.method !== 'GET') return;
 
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response && response.status === 200 && response.type === 'basic') {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        }
-        return response;
-      })
-      .catch(() => caches.match(event.request))
-  );
+  const url = new URL(request.url);
+  const isPublicSupabaseMedia = url.hostname.endsWith('.supabase.co') && url.pathname.includes('/storage/v1/object/public/');
+  const isSupabaseApi = url.hostname.endsWith('.supabase.co') && !isPublicSupabaseMedia;
+  const isSameOrigin = url.origin === self.location.origin;
+
+  // Auth, database rows, and private storage are never persisted by this worker.
+  if (isSupabaseApi || (!isSameOrigin && !isPublicSupabaseMedia)) return;
+
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const cached = await cache.match(request);
+
+    if (isPublicSupabaseMedia && cached) {
+      event.waitUntil(fetchAndCache(request, cache));
+      return cached;
+    }
+
+    try {
+      return await fetchAndCache(request, cache);
+    } catch {
+      if (cached) return cached;
+      if (request.mode === 'navigate') {
+        const appShell = await cache.match('/index.html');
+        if (appShell) return appShell;
+      }
+      return Response.error();
+    }
+  })());
 });
+
+async function fetchAndCache(request, cache) {
+  const response = await fetch(request);
+  const hasRangeHeader = request.headers.has('range');
+  if (!hasRangeHeader && response.ok && (response.type === 'basic' || response.type === 'cors')) {
+    const copy = response.clone();
+    await cache.put(request, copy);
+    const keys = await cache.keys();
+    if (keys.length > MAX_CACHED_REQUESTS) {
+      await cache.delete(keys[0]);
+    }
+  }
+  return response;
+}

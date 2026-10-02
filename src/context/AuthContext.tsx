@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 
 interface Profile {
@@ -17,8 +18,8 @@ interface Profile {
 }
 
 interface AuthContextType {
-  user: any | null;
-  session: any | null;
+  user: User | null;
+  session: Session | null;
   profile: Profile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{
@@ -30,15 +31,17 @@ interface AuthContextType {
     username: string
   ) => Promise<{
     error: Error | null;
-    user: any | null;
+    user: User | null;
   }>;
   verifyRecoveryOtp: (email: string, token: string) => Promise<{ error: Error | null }>;
+  sendRecoveryOtp: (email: string) => Promise<{ error: Error | null }>;
+  resendRecoveryOtp: (email: string) => Promise<{ error: Error | null }>;
   verifyEmailOtp: (
     email: string,
     token: string
   ) => Promise<{
     error: Error | null;
-    user: any | null;
+    user: User | null;
   }>;
   resendVerificationCode: (
     email: string
@@ -52,13 +55,12 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<any | null>(null);
-  const [session, setSession] = useState<any | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { const _t = setTimeout(() => setLoading(false), 500); return () => clearTimeout(_t); }, []);
 
-  const ensureProfileExists = async (userData: any) => {
+  const ensureProfileExists = async (userData: User) => {
     try {
       const { data: existing } = await supabase
         .from('profiles')
@@ -92,7 +94,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         avatar_url: meta.avatar_url || meta.picture || null,
       });
 
-      console.log('AUTO-CREATED PROFILE:', finalUsername);
     } catch (e) {
       console.error('ensureProfileExists error:', e);
     }
@@ -124,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    let profileSyncTimeout: number | undefined;
 
     const initializeAuth = async () => {
       try {
@@ -153,22 +155,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
+
+      if (event === 'PASSWORD_RECOVERY') {
+        sessionStorage.setItem('password_recovery', '1');
+      }
 
       setSession(session);
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        await ensureProfileExists(session.user);
-        await loadProfile(session.user.id);
+        window.clearTimeout(profileSyncTimeout);
+        profileSyncTimeout = window.setTimeout(() => {
+          if (!mounted || sessionStorage.getItem('password_recovery') === '1') return;
+          void ensureProfileExists(session.user).then(() => loadProfile(session.user.id));
+        }, 0);
       } else {
+        window.clearTimeout(profileSyncTimeout);
         setProfile(null);
       }
     });
 
     return () => {
       mounted = false;
+      window.clearTimeout(profileSyncTimeout);
       subscription.unsubscribe();
     };
   }, []);
@@ -235,6 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: cleanEmail,
         password,
         options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback?flow=signup`,
           data: {
             username: cleanUsername,
           },
@@ -337,12 +349,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const verifyRecoveryOtp = async (email, token) => {
+  const verifyRecoveryOtp = async (email: string, token: string) => {
+    sessionStorage.setItem('password_recovery', '1');
     try {
       const cleanEmail = email.trim().toLowerCase();
       const cleanToken = token.trim();
 
       if (cleanToken.length !== 6) {
+        sessionStorage.removeItem('password_recovery');
         return { error: new Error('رمز التحقق خاصو يكون 6 أرقام') };
       }
 
@@ -353,19 +367,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (result.error) {
+        sessionStorage.removeItem('password_recovery');
         return { error: new Error(result.error.message) };
       }
 
-      if (result.data.session === null) {
+      if (!result.data.session) {
+        sessionStorage.removeItem('password_recovery');
         return { error: new Error('ما قدرناش نفتح Session') };
       }
 
+      setSession(result.data.session);
+      setUser(result.data.user);
       return { error: null };
     } catch (error) {
+      sessionStorage.removeItem('password_recovery');
       const msg = error instanceof Error ? error.message : 'خطأ غير متوقع';
       return { error: new Error(msg) };
     }
   };
+
+  const sendRecoveryOtp = async (email: string) => {
+    try {
+      const cleanEmail = email.trim().toLowerCase();
+      if (!cleanEmail) return { error: new Error('دخل البريد الإلكتروني') };
+
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      return { error: error ? new Error(error.message) : null };
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error : new Error('ما قدرناش نعاودو نصيفطو رمز التحقق'),
+      };
+    }
+  };
+
+  const resendRecoveryOtp = sendRecoveryOtp;
 
   const resendVerificationCode = async (email: string) => {
     try {
@@ -380,6 +418,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email: cleanEmail,
+        options: { emailRedirectTo: `${window.location.origin}/auth/callback?flow=signup` },
       });
 
       if (error) {
@@ -425,6 +464,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signIn,
     signUp,
     verifyRecoveryOtp,
+    sendRecoveryOtp,
+    resendRecoveryOtp,
     verifyEmailOtp,
     resendVerificationCode,
     signOut,

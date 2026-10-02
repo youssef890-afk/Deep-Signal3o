@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Loader2, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -11,7 +11,62 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
-  const [slow, setSlow] = useState(false);
+  const [hasSession, setHasSession] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let timeoutId: number | undefined;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!active) return;
+      if (event === 'PASSWORD_RECOVERY' || session) {
+        setHasSession(true);
+        setError('');
+      }
+    });
+
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!active) return;
+
+        if (session) {
+          setHasSession(true);
+          return;
+        }
+
+        timeoutId = window.setTimeout(() => {
+          void supabase.auth.getSession().then(({ data }) => {
+            if (!active || data.session) return;
+            sessionStorage.removeItem('password_recovery');
+            setHasSession(false);
+            setError('الرابط منتهي الصلاحية أو الجلسة غير موجودة. يرجى طلب رمز جديد.');
+          }).catch(() => {
+            if (!active) return;
+            setHasSession(false);
+            setError('تعذر التحقق من الجلسة. أعد طلب رمز استعادة كلمة السر.');
+          });
+        }, 3000);
+      } catch {
+        if (active) {
+          setHasSession(false);
+          setError('تعذر التحقق من الجلسة. أعد طلب رمز استعادة كلمة السر.');
+        }
+      }
+    };
+
+    void checkSession();
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!done) return;
+    const timer = window.setTimeout(() => navigate('/login', { replace: true }), 2000);
+    return () => window.clearTimeout(timer);
+  }, [done, navigate]);
 
   const handleSave = async () => {
     setError('');
@@ -27,46 +82,36 @@ export default function ResetPasswordPage() {
     }
 
     setLoading(true);
-    setSlow(false);
-
-    // بعد 5 ثواني، نوري رسالة "جاري الحفظ، تسنى..."
-    const slowTimer = setTimeout(() => setSlow(true), 5000);
+    let timeoutId: number | undefined;
 
     try {
-      // 1. تأكد من session
+      // التأكد السريع قبل التحديث
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        setError('الجلسة انتهت. رجع لصفحة "نسيت كلمة السر"');
-        setLoading(false);
-        clearTimeout(slowTimer);
+        setError('الجلسة انتهت. يرجى إعادة طلب رابط تغيير كلمة السر.');
         return;
       }
 
-      // 2. updateUser (بلا timeout)
-      const { error: updateError } = await supabase.auth.updateUser({ password });
-      clearTimeout(slowTimer);
+      const updatePromise = supabase.auth.updateUser({ password });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        timeoutId = window.setTimeout(() => reject(new Error('تأخرت الاستجابة من السيرفر. حاول مرة أخرى.')), 12000)
+      );
 
-      if (updateError) {
-        setError(updateError.message);
-        setLoading(false);
+      const res = await Promise.race([updatePromise, timeoutPromise]);
+
+      if (res?.error) {
+        setError(res.error.message);
         return;
       }
 
-      // 3. نجح
       setDone(true);
       sessionStorage.removeItem('password_recovery');
+      await supabase.auth.signOut().catch(() => {});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع');
+    } finally {
+      window.clearTimeout(timeoutId);
       setLoading(false);
-
-      supabase.auth.signOut().catch(() => {});
-
-      setTimeout(() => {
-        navigate('/login', { replace: true });
-      }, 2000);
-
-    } catch (err: any) {
-      clearTimeout(slowTimer);
-      setLoading(false);
-      setError(err.message || 'خطأ غير متوقع');
     }
   };
 
@@ -78,7 +123,7 @@ export default function ResetPasswordPage() {
             <CheckCircle2 className="w-10 h-10 text-emerald-400" />
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">تم بنجاح ✅</h1>
-          <p className="text-white/60 text-sm">كلمة السر تبدلت. جاري التحويل...</p>
+          <p className="text-white/60 text-sm">كلمة السر تبدلت. جاري التحويل لصفحة الدخول...</p>
         </div>
       </div>
     );
@@ -128,12 +173,6 @@ export default function ResetPasswordPage() {
               />
             </div>
 
-            {slow && loading && (
-              <div className="text-sm text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 text-center">
-                ⏳ جاري الحفظ... Supabase بطيء حالياً. تسنى شوية.
-              </div>
-            )}
-
             {error && (
               <div className="text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
                 {error}
@@ -142,8 +181,8 @@ export default function ResetPasswordPage() {
 
             <button
               onClick={handleSave}
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white font-bold py-3.5 rounded-2xl disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={loading || hasSession !== true}
+              className="w-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white font-bold py-3.5 rounded-2xl disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'حفظ كلمة السر'}
             </button>

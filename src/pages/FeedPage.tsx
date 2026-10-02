@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
@@ -7,10 +7,13 @@ import {
   MessageCircle,
   Share2,
   Send,
-  Plus,
-  Search,
+  FileText,
+  Image as ImageIcon,
+  Video,
+  Music2,
 } from 'lucide-react';
 import { CreatePostModal } from '@/components/CreatePostModal';
+import PostSummarizer from '@/components/PostSummarizer';
 
 interface UserProfile {
   id: string;
@@ -20,11 +23,20 @@ interface UserProfile {
   avatar_url: string | null;
 }
 
+interface ConnectionProfile extends UserProfile {
+  followedByMe: boolean;
+  followsMe: boolean;
+  latestPostType: 'text' | 'image' | 'video' | 'reel' | 'audio' | null;
+  latestPostAt: string | null;
+  hasRecentPost: boolean;
+}
+
 interface Post {
   id: string;
   user_id: string;
   image_url: string | null;
   video_url: string | null;
+  audio_url: string | null;
   caption: string | null;
   created_at: string;
   post_type?: 'text' | 'image' | 'video' | 'reel';
@@ -55,30 +67,45 @@ interface Comment {
  * كل مرة المستخدم يرجع للصفحة.
  */
 let feedCache: {
+  userId: string;
   posts: Post[];
-  currentUserProfile: UserProfile | null;
-  activeUsers: UserProfile[];
+  connections: ConnectionProfile[];
 } | null = null;
 
+function readCachedFeed(userId?: string) {
+  if (!userId) return null;
+  if (feedCache?.userId === userId) return feedCache;
+
+  try {
+    const saved = localStorage.getItem(`ds-feed-v1:${userId}`);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved) as typeof feedCache;
+    return parsed?.userId === userId && Array.isArray(parsed.posts) && Array.isArray(parsed.connections)
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function FeedPage() {
-  const { user } = useAuth();
+  const { session } = useAuth();
+  const user = session?.user ?? null;
   const navigate = useNavigate();
+  const cachedFeed = readCachedFeed(user?.id);
 
   const [posts, setPosts] = useState<Post[]>(
-    feedCache?.posts || []
+    cachedFeed?.posts || []
   );
 
-  const [currentUserProfile, setCurrentUserProfile] =
-    useState<UserProfile | null>(
-      feedCache?.currentUserProfile || null
-    );
-
-  const [activeUsers, setActiveUsers] = useState<UserProfile[]>(
-    feedCache?.activeUsers || []
+  const [connections, setConnections] = useState<ConnectionProfile[]>(
+    cachedFeed?.connections || []
   );
+
+  const [feedError, setFeedError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(
-    !feedCache?.posts.length
+    !cachedFeed?.posts.length
   );
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -95,20 +122,7 @@ export default function FeedPage() {
   const [loadingComments, setLoadingComments] =
     useState(false);
 
-  useEffect(() => {
-    if (!user) return;
-
-    const _safetyFeed = setTimeout(() => {
-      console.log('FEED TIMEOUT - forcing loading=false');
-      setLoading(false);
-    }, 3000);
-    void loadFeed().finally(() => clearTimeout(_safetyFeed)).catch((e) => {
-      console.error('loadFeed crashed:', e);
-      setLoading(false);
-    });
-  }, [user]);
-
-  async function loadFeed() {
+  const loadFeed = useCallback(async () => {
     if (!user) return;
 
     /*
@@ -116,11 +130,24 @@ export default function FeedPage() {
      * نخلي البيانات تبان مباشرة
      * ونحدثها فالخلفية.
      */
-    if (!feedCache?.posts.length) {
+    setFeedError(null);
+    if (!cachedFeed?.posts.length) {
       setLoading(true);
     }
 
     try {
+      const [followingResult, followersResult] = await Promise.all([
+        supabase.from('follows').select('following_id').eq('follower_id', user.id),
+        supabase.from('follows').select('follower_id').eq('following_id', user.id),
+      ]);
+
+      if (followingResult.error) throw followingResult.error;
+      if (followersResult.error) throw followersResult.error;
+      const followingIds = (followingResult.data ?? []).map((follow) => follow.following_id);
+      const followerIds = (followersResult.data ?? []).map((follow) => follow.follower_id);
+      const feedUserIds = [...new Set([user.id, ...followingIds])];
+      const connectionIds = [...new Set([...followingIds, ...followerIds])].filter((id) => id !== user.id);
+
       /*
        * أولاً:
        * نجيب المستخدم الحالي.
@@ -130,58 +157,35 @@ export default function FeedPage() {
        *
        * بجوج في نفس الوقت.
        */
-      const [
-        myProfileResult,
-        postsResult,
-      ] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select(
-            'id, username, full_name, bio, avatar_url'
-          )
-          .eq('id', user.id)
-          .maybeSingle(),
-
-        supabase
-          .from('posts')
-          .select(
-            `
+      const postsResult = await supabase
+        .from('posts')
+        .select(
+          `
               id,
               user_id,
               image_url,
               video_url,
+              audio_url,
               caption,
               created_at,
               post_type,
               background_style,
               media_urls,
               video_type
-            `
-          )
-          .order('created_at', {
-            ascending: false,
-          })
-          .limit(30),
-      ]);
-
-      if (myProfileResult.error) {
-        console.error(
-          'Current profile error:',
-          myProfileResult.error
-        );
-      }
+          `
+        )
+        .order('created_at', {
+          ascending: false,
+        })
+        .in('user_id', feedUserIds)
+        .limit(30);
 
       if (postsResult.error) {
         throw postsResult.error;
       }
 
-      const myProfile =
-        myProfileResult.data || null;
-
       const postsData =
         postsResult.data || [];
-
-      setCurrentUserProfile(myProfile);
 
       /*
        * ---------------------------------------
@@ -262,46 +266,58 @@ export default function FeedPage() {
        * إلا كان شي Post ما عندوش Profile
        * كنشوفو ID ديالو فالـ console.
        */
-      const missingProfileIds =
-        postUserIds.filter(
-          (id) =>
-            !profilesMap.has(id)
-        );
-
-      if (
-        missingProfileIds.length >
-        0
-      ) {
-        console.warn(
-          'Profiles not found for post user IDs:',
-          missingProfileIds
-        );
-      }
-
       /*
        * ---------------------------------------
        * جلب Users للاقتراحات
        * ---------------------------------------
        */
-      const activeUsersResult = await supabase
-        .from('profiles')
-        .select(
-          'id, username, full_name, bio, avatar_url'
-        )
-        .neq('id', user.id)
-        .limit(6);
+      let connectionProfiles: ConnectionProfile[] = [];
+      if (connectionIds.length > 0) {
+        const [connectionProfilesResult, connectionPostsResult] = await Promise.all([
+          supabase.from('profiles')
+            .select('id, username, full_name, bio, avatar_url')
+            .in('id', connectionIds),
+          supabase.from('posts')
+            .select('user_id, post_type, video_url, audio_url, created_at')
+            .in('user_id', connectionIds)
+            .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+            .order('created_at', { ascending: false })
+            .limit(500),
+        ]);
 
-      if (activeUsersResult.error) {
-        console.error(
-          'Active users error:',
-          activeUsersResult.error
+        if (connectionProfilesResult.error) throw connectionProfilesResult.error;
+        if (connectionPostsResult.error) throw connectionPostsResult.error;
+
+        const latestPosts = new Map<string, { type: ConnectionProfile['latestPostType']; createdAt: string }>();
+        for (const post of connectionPostsResult.data ?? []) {
+          if (latestPosts.has(post.user_id)) continue;
+          const type = post.audio_url
+            ? 'audio'
+            : post.video_url
+            ? post.post_type === 'reel' ? 'reel' : 'video'
+            : post.post_type === 'text' || post.post_type === 'image' || post.post_type === 'reel'
+              ? post.post_type
+              : null;
+          latestPosts.set(post.user_id, { type, createdAt: post.created_at });
+        }
+
+        const freshAfter = Date.now() - 24 * 60 * 60 * 1000;
+        connectionProfiles = (connectionProfilesResult.data ?? []).map((profile) => {
+          const latestPost = latestPosts.get(profile.id);
+          return {
+            ...profile,
+            followedByMe: followingIds.includes(profile.id),
+            followsMe: followerIds.includes(profile.id),
+            latestPostType: latestPost?.type ?? null,
+            latestPostAt: latestPost?.createdAt ?? null,
+            hasRecentPost: Boolean(latestPost && Date.parse(latestPost.createdAt) >= freshAfter),
+          };
+        }).sort((first, second) =>
+          Number(second.hasRecentPost) - Number(first.hasRecentPost) ||
+          Date.parse(second.latestPostAt ?? '') - Date.parse(first.latestPostAt ?? '')
         );
       }
-
-      const otherUsers =
-        activeUsersResult.data || [];
-
-      setActiveUsers(otherUsers);
+      setConnections(connectionProfiles);
 
       /*
        * ---------------------------------------
@@ -442,6 +458,10 @@ export default function FeedPage() {
                 post.video_url ??
                 null,
 
+              audio_url:
+                post.audio_url ??
+                null,
+
               caption:
                 post.caption ??
                 null,
@@ -494,24 +514,38 @@ export default function FeedPage() {
        * Cache
        */
       feedCache = {
+        userId: user.id,
         posts:
           formattedPosts,
-
-        currentUserProfile:
-          myProfile,
-
-        activeUsers:
-          otherUsers,
+        connections:
+          connectionProfiles,
       };
+      try {
+        localStorage.setItem(`ds-feed-v1:${user.id}`, JSON.stringify(feedCache));
+      } catch (error) {
+        console.warn('Feed cache storage is unavailable:', error);
+      }
     } catch (error) {
       console.error(
         'Error loading feed:',
         error
       );
+      setFeedError('ما قدرناش نحمّلو المنشورات دابا. تحقق من الاتصال وحاول مرة أخرى.');
     } finally {
       setLoading(false);
     }
-  }
+  }, [cachedFeed?.posts.length, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    void loadFeed();
+  }, [loadFeed, user]);
+
+  useEffect(() => {
+    const refreshWhenOnline = () => void loadFeed();
+    window.addEventListener('online', refreshWhenOnline);
+    return () => window.removeEventListener('online', refreshWhenOnline);
+  }, [loadFeed]);
 
   /*
    * ---------------------------------------
@@ -971,8 +1005,8 @@ export default function FeedPage() {
     posts.length === 0
   ) {
     return (
-      <div className="min-h-screen bg-black text-white">
-        <div className="max-w-md mx-auto px-4 py-4">
+      <div className="min-h-[60vh] text-white">
+        <div className="mx-auto w-full max-w-[680px] px-3 py-5 sm:px-5">
 
           <div className="h-12 w-40 bg-neutral-900 rounded-xl animate-pulse mb-6" />
 
@@ -986,195 +1020,92 @@ export default function FeedPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="text-white">
 
-      <div className="max-w-md mx-auto px-4 pt-4 pb-28">
+      <div className="mx-auto w-full max-w-[680px] px-3 pt-5 pb-28 sm:px-5 lg:pb-8">
 
-        {/* ================================= */}
-        {/* HEADER */}
-        {/* ================================= */}
+        {feedError && posts.length > 0 && (
+          <p role="status" className="mb-4 rounded-lg border border-amber-300/10 bg-amber-300/[0.04] px-3 py-2 text-[10px] text-amber-100/70" dir="rtl">
+            كتشوف آخر نسخة محفوظة؛ التحديث غير متاح دابا.
+          </p>
+        )}
 
-        <header className="flex items-center justify-between mb-5">
-
-          {/* USER PROFILE */}
-
+        <section className="mb-5 flex items-center justify-between gap-3" dir="rtl">
+          <div>
+            <p className="text-[11px] font-medium text-rose-300/80">مساحة متابعاتك</p>
+            <h1 className="mt-1 text-xl font-bold text-white sm:text-2xl">الرئيسية</h1>
+          </div>
           <button
             type="button"
-            onClick={() => {
-              if (user) {
-                navigate(
-                  `/profile/${user.id}`
-                );
-              }
-            }}
-            className="flex items-center gap-3 min-w-0"
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full bg-gradient-to-r from-rose-500 to-orange-400 px-4 text-xs font-semibold text-white transition hover:brightness-110"
           >
-            <div className="w-11 h-11 rounded-full p-[2px] bg-gradient-to-tr from-rose-500 via-purple-500 to-amber-500 shrink-0">
-
-              {currentUserProfile?.avatar_url ? (
-                <img
-                  src={
-                    currentUserProfile.avatar_url
-                  }
-                  alt="Avatar"
-                  className="w-full h-full rounded-full object-cover border-2 border-black"
-                />
-              ) : (
-                <div className="w-full h-full rounded-full bg-neutral-900 flex items-center justify-center font-bold">
-                  {currentUserProfile?.username
-                    ?.charAt(0)
-                    .toUpperCase() ||
-                    'U'}
-                </div>
-              )}
-
-            </div>
-
-            <div className="text-left min-w-0">
-
-              <p className="text-sm font-bold truncate">
-                {
-                  currentUserProfile?.username ||
-                  'مستخدم'
-                }
-              </p>
-
-              <p className="text-xs text-neutral-500 truncate">
-                {currentUserProfile?.full_name ||
-                  'الصفحة الرئيسية'}
-              </p>
-
-            </div>
+            <span aria-hidden="true" className="text-base leading-none">+</span>
+            منشور جديد
           </button>
+        </section>
 
-          {/* HEADER ACTIONS */}
-
-          <div className="flex items-center gap-2">
-
-            {/* SEARCH */}
-
-            <button
-              type="button"
-              onClick={() =>
-                navigate(
-                  '/search'
-                )
-              }
-              aria-label="البحث"
-              className="w-10 h-10 rounded-full bg-neutral-900 border border-white/10 flex items-center justify-center hover:bg-neutral-800 transition"
-            >
-              <Search className="w-5 h-5" />
-            </button>
-
-            {/* CREATE */}
-
-            <button
-              type="button"
-              onClick={() =>
-                setIsModalOpen(
-                  true
-                )
-              }
-              aria-label="إنشاء منشور"
-              className="w-10 h-10 rounded-full bg-neutral-900 border border-white/10 flex items-center justify-center hover:bg-neutral-800 transition"
-            >
-              <Plus className="w-5 h-5" />
-            </button>
-
-          </div>
-
-        </header>
-
-        {/* ================================= */}
-        {/* USER SUGGESTIONS */}
-        {/* ================================= */}
-
-        {activeUsers.length >
-          0 && (
-          <section className="mb-6">
-
-            <div className="flex items-center justify-between mb-3">
-
-              <h2 className="text-sm font-bold">
-                أشخاص قد تعرفهم
-              </h2>
-
-              <button
-                type="button"
-                onClick={() =>
-                  navigate(
-                    '/search'
-                  )
-                }
-                className="text-xs text-rose-500"
-              >
-                البحث عن أشخاص
-              </button>
-
+        {connections.length > 0 && (
+          <section className="mb-7" dir="rtl" aria-label="المتابعون والمتابَعون">
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-bold">دائرتك</h2>
+                <p className="mt-1 text-[10px] text-white/40">الحسابات التي تتابعها أو تتابعك</p>
+              </div>
+              <span className="text-[10px] text-white/35">{connections.length} حساب</span>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="flex gap-4 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {connections.map((profile) => {
+                const MediaIcon = profile.latestPostType === 'audio'
+                  ? Music2
+                  : profile.latestPostType === 'video' || profile.latestPostType === 'reel'
+                    ? Video
+                    : profile.latestPostType === 'text'
+                      ? FileText
+                      : ImageIcon;
+                const activityLabel = profile.latestPostType === 'audio'
+                  ? 'تسجيل صوتي جديد'
+                  : profile.latestPostType === 'video' || profile.latestPostType === 'reel'
+                    ? 'فيديو جديد'
+                    : profile.latestPostType === 'text'
+                      ? 'كتابة جديدة'
+                      : profile.latestPostType === 'image'
+                        ? 'صورة جديدة'
+                        : profile.followedByMe ? 'تتابعه' : 'يتابعك';
 
-              {activeUsers
-                .slice(0, 6)
-                .map(
-                  (
-                    profile
-                  ) => (
-                    <button
-                      key={
-                        profile.id
-                      }
-                      type="button"
-                      onClick={() =>
-                        navigate(
-                          `/profile/${profile.id}`
-                        )
-                      }
-                      className="bg-neutral-950 border border-white/10 rounded-2xl p-3 text-center hover:bg-neutral-900 transition"
-                    >
-
-                      <div className="w-12 h-12 mx-auto mb-2 rounded-full p-[2px] bg-gradient-to-tr from-rose-500 to-purple-600">
-
+                return (
+                  <button
+                    key={profile.id}
+                    type="button"
+                    onClick={() => navigate(`/profile/${profile.id}`)}
+                    aria-label={`${profile.username}، ${activityLabel}، عرض الملف والمنشورات`}
+                    className="group flex w-[76px] shrink-0 flex-col items-center gap-1.5 text-center"
+                  >
+                    <span className={`relative block h-[66px] w-[66px] rounded-full p-[2.5px] transition-transform group-hover:scale-105 ${profile.hasRecentPost ? 'bg-gradient-to-tr from-rose-500 via-fuchsia-500 to-emerald-400' : 'bg-white/20'}`}>
+                      <span className="flex h-full w-full items-center justify-center rounded-full bg-[#09090d] p-[2px]">
                         {profile.avatar_url ? (
-                          <img
-                            src={
-                              profile.avatar_url
-                            }
-                            alt={
-                              profile.username
-                            }
-                            loading="lazy"
-                            className="w-full h-full rounded-full object-cover border-2 border-black"
-                          />
+                          <img src={profile.avatar_url} alt="" loading="lazy" className="h-full w-full rounded-full object-cover" />
                         ) : (
-                          <div className="w-full h-full rounded-full bg-neutral-800 flex items-center justify-center font-bold text-sm">
-                            {profile.username
-                              ?.charAt(
-                                0
-                              )
-                              .toUpperCase()}
-                          </div>
+                          <span className="flex h-full w-full items-center justify-center rounded-full bg-white/[0.08] text-lg font-semibold text-white/75">
+                            {profile.username.charAt(0).toUpperCase()}
+                          </span>
                         )}
-
-                      </div>
-
-                      <p className="text-xs font-semibold truncate">
-                        {
-                          profile.username
-                        }
-                      </p>
-
-                      <span className="block mt-2 text-[10px] text-rose-500">
-                        عرض الملف
                       </span>
-
-                    </button>
-                  )
-                )}
-
+                      {profile.hasRecentPost && (
+                        <span className="absolute bottom-0 right-0 grid h-6 w-6 place-items-center rounded-full bg-[#111116] text-rose-300 ring-2 ring-[#09090d]">
+                          <MediaIcon className="h-3.5 w-3.5" />
+                        </span>
+                      )}
+                    </span>
+                    <span className="w-full truncate text-[11px] font-medium text-white/85">{profile.username}</span>
+                    <span className={`w-full truncate text-[9px] ${profile.hasRecentPost ? 'text-emerald-300' : 'text-white/40'}`}>
+                      {activityLabel}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-
           </section>
         )}
 
@@ -1198,8 +1129,18 @@ export default function FeedPage() {
 
           </div>
 
-          {posts.length ===
-          0 ? (
+          {feedError && posts.length === 0 ? (
+            <div role="alert" className="rounded-2xl border border-rose-400/20 bg-rose-400/[0.06] p-6 text-center">
+              <p className="text-sm text-rose-200">{feedError}</p>
+              <button
+                type="button"
+                onClick={() => void loadFeed()}
+                className="mt-4 rounded-full bg-white/[0.08] px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/[0.14]"
+              >
+                إعادة المحاولة
+              </button>
+            </div>
+          ) : posts.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-neutral-950 p-8 text-center">
 
               <p className="text-neutral-400 text-sm">
@@ -1230,6 +1171,17 @@ export default function FeedPage() {
                     }
                     className="rounded-2xl overflow-hidden bg-neutral-950 border border-white/10"
                   >
+
+                    <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-2.5" dir="rtl">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
+                      <p className="min-w-0 truncate text-[11px] text-white/60">
+                        <span className="font-semibold text-white/85">{post.profiles?.username || 'مستخدم'}</span>
+                        {' '}قام بإضافة منشور
+                      </p>
+                      <time className="mr-auto shrink-0 text-[10px] text-white/35">
+                        {new Date(post.created_at).toLocaleDateString('ar-MA')}
+                      </time>
+                    </div>
 
                     {/* POST HEADER */}
 
@@ -1318,6 +1270,10 @@ export default function FeedPage() {
 
                         </div>
                       )}
+
+                    {(post.caption?.length ?? 0) > 180 || post.video_url ? (
+                      <PostSummarizer text={post.caption || ''} />
+                    ) : null}
 
                     {/* ACTIONS */}
 

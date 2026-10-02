@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 
 export default function ForgotPasswordPage() {
   const navigate = useNavigate();
-  const { verifyRecoveryOtp, resendVerificationCode } = useAuth();
+  const { verifyRecoveryOtp, sendRecoveryOtp, resendRecoveryOtp } = useAuth();
 
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -26,22 +26,16 @@ export default function ForgotPasswordPage() {
     }
 
     setLoading(true);
-    try {
-      const { supabase } = await import('@/lib/supabase');
-      const { error: sendError } = await supabase.auth.resetPasswordForEmail(cleanEmail);
-
-      if (sendError) {
-        setError(sendError.message);
-        setLoading(false);
-        return;
-      }
-
-      setStep('otp');
-      setMessage('صيفطنا ليك رمز التحقق في البريد');
-    } catch (e) {
-      setError('ما قدرناش نرسلو الرمز');
-    }
+    const result = await sendRecoveryOtp(cleanEmail);
     setLoading(false);
+
+    if (result.error) {
+      setError(result.error.message);
+      return;
+    }
+
+    setStep('otp');
+    setMessage('صيفطنا ليك رمز التحقق في البريد');
   };
 
   const verifyOtp = async () => {
@@ -71,7 +65,7 @@ export default function ForgotPasswordPage() {
     if (resending) return;
     setResending(true);
     setError('');
-    const result = await resendVerificationCode(email);
+    const result = await resendRecoveryOtp(email);
     setResending(false);
     if (result.error) {
       setError(result.error.message || 'ما قدرناش نرسلو');
