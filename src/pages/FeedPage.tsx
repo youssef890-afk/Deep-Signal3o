@@ -13,6 +13,8 @@ import {
   Music2,
   Loader2,
   Plus,
+  ArrowUpRight,
+  Gamepad2,
 } from 'lucide-react';
 import { CreatePostModal } from '@/components/CreatePostModal';
 import PostSummarizer from '@/components/PostSummarizer';
@@ -1208,6 +1210,37 @@ export default function FeedPage() {
             {quickFollowError && <p role="alert" className="mt-2 text-[11px] text-rose-300">{quickFollowError}</p>}
           </section>
         )}
+
+        <section
+          aria-label="إعلان من Deep-Signal"
+          dir="rtl"
+          className="relative mb-7 overflow-hidden rounded-2xl border border-emerald-200/20 bg-[linear-gradient(115deg,rgba(12,42,38,0.9),rgba(16,18,24,0.98)_58%,rgba(44,24,39,0.85))] p-4 sm:p-5"
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <img
+              src="/icon-192.png"
+              alt="Deep-Signal"
+              loading="lazy"
+              className="h-12 w-12 shrink-0 rounded-xl border border-white/10"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="mb-1 text-[10px] font-semibold text-emerald-200/80">إعلان من Deep-Signal</p>
+              <h2 className="text-base font-bold text-white sm:text-lg">تحدّى صحابك في إكس-أو</h2>
+              <p className="mt-1 text-xs leading-6 text-white/60">
+                أنشئ مباراة مباشرة وشارك كود الدعوة. اللعب المباشر يحتاج حساباً واتصالاً بالإنترنت.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/games')}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-200/25 bg-emerald-200/10 px-4 py-2.5 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-200/15"
+            >
+              جرّب اللعبة
+              <Gamepad2 className="h-4 w-4" aria-hidden="true" />
+              <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        </section>
 
         {/* ================================= */}
         {/* POSTS */}

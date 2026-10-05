@@ -5,8 +5,8 @@ export interface Profile {
   avatar_url: string | null;
   bio: string | null;
   created_at: string;
-  display_id: string;
-  close_friends?: unknown;
+  cover_url?: string | null;
+  display_id?: number | null;
 }
 
 export interface Post {

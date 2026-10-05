@@ -17,6 +17,7 @@ export default function ChatPage() {
   const [activeUser, setActiveUser] = useState<Profile | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [messageError, setMessageError] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -126,7 +127,7 @@ export default function ChatPage() {
         await supabase.from('messages').update({ read_at: new Date().toISOString() }).eq('id', m.id);
       }
     }
-  }, [user, activeUserId]);
+  }, [user, activeUserId, refreshUnread]);
 
   useEffect(() => {
     const _tc = setTimeout(() => { setLoading(false); }, 3000);
@@ -277,19 +278,24 @@ export default function ChatPage() {
   const handleSend = async () => {
     if (!newMessage.trim() || !user || !activeUserId) return;
     setSending(true);
+    setMessageError('');
     const content = newMessage.trim();
     setNewMessage('');
 
-    const { data } = await supabase
-      .from('messages')
-      .insert({ sender_id: user.id, receiver_id: activeUserId, content })
-      .select()
-      .single();
-
-    if (data) {
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({ sender_id: user.id, receiver_id: activeUserId, content })
+        .select()
+        .single();
+      if (error || !data) throw error ?? new Error('Message was not saved');
       setMessages((prev) => [...prev, data as Message]);
+    } catch {
+      setNewMessage(content);
+      setMessageError('تعذر إرسال الرسالة. تحقق من الاتصال وحاول مرة أخرى.');
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   };
 
   const displayName = (p: Profile) => p.full_name || p.username;
@@ -441,7 +447,7 @@ export default function ChatPage() {
                 <input
                   type="text"
                   value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
+                  onChange={(e) => { setNewMessage(e.target.value); setMessageError(''); }}
                   onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
                   placeholder="Type a message..."
                   className="flex-1 bg-neutral-800 border border-white/10 rounded-full px-5 py-3 text-sm text-white placeholder-neutral-600 focus:outline-none focus:border-rose-500/50 transition-all"
@@ -454,6 +460,7 @@ export default function ChatPage() {
                   <Send className="w-5 h-5" />
                 </button>
               </div>
+              {messageError && <p role="alert" className="mt-2 text-xs text-rose-300">{messageError}</p>}
             </div>
           </>
         ) : (

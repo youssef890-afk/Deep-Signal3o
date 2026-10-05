@@ -12,9 +12,9 @@ interface Profile {
   id: string;
   username: string;
   full_name?: string | null;
-  bio?: string | null;
+  bio: string | null;
   avatar_url?: string | null;
-  display_id?: string | null;
+  display_id?: number | null;
 }
 
 interface AuthContextType {

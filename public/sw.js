@@ -1,4 +1,4 @@
-const CACHE_NAME = 'deep-signal-v3';
+const CACHE_NAME = 'deep-signal-v4';
 const APP_SHELL = ['/', '/index.html', '/manifest.json'];
 const MAX_CACHED_REQUESTS = 100;
 

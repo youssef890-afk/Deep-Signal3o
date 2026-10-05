@@ -35,18 +35,25 @@ export function MessagesProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    refreshUnread();
+    void refreshUnread();
 
+    // Filter on the server so a client is not woken by every message written in
+    // the system. The channel name is stable so a re-render does not resubscribe.
     const channel = supabase
-      .channel(`unread-${user.id}-${Date.now()}`)
+      .channel(`unread:${user.id}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
-        () => { refreshUnread(); }
+        {
+          event: '*',
+          schema: 'public',
+          table: 'messages',
+          filter: `receiver_id=eq.${user.id}`,
+        },
+        () => { void refreshUnread(); }
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => { void supabase.removeChannel(channel); };
   }, [user, refreshUnread]);
 
   return (

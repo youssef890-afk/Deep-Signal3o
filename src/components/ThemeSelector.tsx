@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Check } from 'lucide-react';
-import { THEMES, useTheme } from '@/context/ThemeContext';
+import { useTheme } from '@/context/ThemeContext';
+import { THEMES } from '@/lib/themes';
 
 export default function ThemeSelector() {
   const { theme, setTheme } = useTheme();

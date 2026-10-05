@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
@@ -13,17 +13,34 @@ import SignupPage from '@/pages/SignupPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import ResetPasswordPage from '@/pages/ResetPasswordPage';
 import AuthCallbackPage from '@/pages/AuthCallbackPage';
-import FeedPage from '@/pages/FeedPage';
-import ChatPage from '@/pages/ChatPage';
-import ProfilePage from '@/pages/ProfilePage';
-import SearchPage from '@/pages/SearchPage';
-import DiscoverPage from '@/pages/DiscoverPage';
-import RoomsPage from '@/pages/RoomsPage';
-import ReelsPage from '@/pages/ReelsPage';
-import RoomDetailPage from '@/pages/RoomDetailPage';
-import GamesPage from '@/pages/GamesPage';
-import VoiceCardClashPage from '@/pages/VoiceCardClashPage';
 import { Signal, Loader2 } from 'lucide-react';
+
+/*
+ * Route-level code splitting.
+ *
+ * Previously every page was imported eagerly, so a visitor downloaded and parsed
+ * the feed, the composer, the profile, the chat, the games and the rooms before
+ * seeing anything. The auth screens stay eager because they are the first paint
+ * for an anonymous visitor; everything behind the login is loaded on demand.
+ */
+const FeedPage = lazy(() => import('@/pages/FeedPage'));
+const ChatPage = lazy(() => import('@/pages/ChatPage'));
+const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
+const SearchPage = lazy(() => import('@/pages/SearchPage'));
+const DiscoverPage = lazy(() => import('@/pages/DiscoverPage'));
+const RoomsPage = lazy(() => import('@/pages/RoomsPage'));
+const ReelsPage = lazy(() => import('@/pages/ReelsPage'));
+const RoomDetailPage = lazy(() => import('@/pages/RoomDetailPage'));
+const GamesPage = lazy(() => import('@/pages/GamesPage'));
+const VoiceCardClashPage = lazy(() => import('@/pages/VoiceCardClashPage'));
+
+function RouteFallback() {
+  return (
+    <div className="grid min-h-[60vh] place-items-center" role="status" aria-label="جارٍ التحميل">
+      <Loader2 className="h-6 w-6 animate-spin text-purple-400" />
+    </div>
+  );
+}
 
 function ProtectedLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -44,7 +61,7 @@ function ProtectedLayout({ children }: { children: ReactNode }) {
         <main className="min-h-[calc(100vh-72px)] pb-[92px] lg:pb-8">
           <AnimatePresence mode="wait">
             <div key={location.pathname}>
-              {children}
+              <Suspense fallback={<RouteFallback />}>{children}</Suspense>
             </div>
           </AnimatePresence>
         </main>

@@ -8,46 +8,81 @@ interface Profile {
   username: string;
   full_name?: string;
   avatar_url?: string;
-  display_id?: string;
+  display_id?: number;
+}
+
+/*
+ * The search term is interpolated into a PostgREST `.or()` filter string, so any
+ * character that has meaning in that grammar (comma, parentheses, quotes,
+ * backslash, dots, percent) must be removed first. Without this, a crafted term
+ * could inject additional filter conditions into the query.
+ */
+function sanitizeSearchTerm(value: string): string {
+  return value
+    .replace(/[,()*'"\\.%]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40);
 }
 
 export default function SearchPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [results, setResults] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchUsers() {
-      if (!searchTerm.trim()) {
+      const term = sanitizeSearchTerm(searchTerm);
+
+      if (!term) {
         // جلب قائمة مقترحة عند فتح البحث بدون كتابة
         const { data } = await supabase
           .from('profiles')
           .select('id, username, full_name, avatar_url, display_id')
           .limit(10);
+        if (cancelled) return;
         setResults((data as Profile[]) || []);
         return;
       }
 
       setLoading(true);
+      setSearchError('');
       try {
+        // `display_id` is an integer column, so an ILIKE on it would be a type
+        // error. It is only matched exactly, and only when the term is numeric.
+        const filters = [`username.ilike.%${term}%`, `full_name.ilike.%${term}%`];
+        const numeric = /^\d{1,9}$/.test(term) ? Number(term) : null;
+        if (numeric !== null) filters.push(`display_id.eq.${numeric}`);
+
         const { data, error } = await supabase
           .from('profiles')
           .select('id, username, full_name, avatar_url, display_id')
-          .or(`username.ilike.%${searchTerm}%,full_name.ilike.%${searchTerm}%,display_id.ilike.%${searchTerm}%`)
+          .or(filters.join(','))
           .limit(20);
 
         if (error) throw error;
+        if (cancelled) return;
         setResults((data as Profile[]) || []);
       } catch (err) {
-        console.error('Error searching users:', err);
+        if (!cancelled) {
+          console.error('Error searching users:', err);
+          setResults([]);
+          setSearchError('ما قدرناش نجيبو النتائج. حاول من بعد.');
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
-    const timer = setTimeout(fetchUsers, 300);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => void fetchUsers(), 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [searchTerm]);
 
   return (
@@ -81,7 +116,9 @@ export default function SearchPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {results.length === 0 ? (
+          {searchError ? (
+            <p role="alert" className="text-center text-xs text-rose-300 py-6">{searchError}</p>
+          ) : results.length === 0 ? (
             <p className="text-center text-xs text-neutral-500 py-6">لا توجد نتائج مطابقة</p>
           ) : (
             results.map((item) => (

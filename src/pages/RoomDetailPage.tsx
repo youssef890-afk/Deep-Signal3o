@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -79,24 +79,7 @@ export default function RoomDetailPage() {
   const isMember = members.some((member) => member.user_id === user?.id);
   const liveAudio = useLiveRoomAudio(roomId ?? '', user?.id, isMember, isMuted);
 
-  useEffect(() => {
-    if (!roomId) {
-      navigate('/rooms');
-      return;
-    }
-
-    void fetchRoom();
-    void fetchMembers();
-
-    const cleanup =
-      subscribeToMembers();
-
-    return () => {
-      cleanup();
-    };
-  }, [roomId]);
-
-  async function fetchRoom() {
+  const fetchRoom = useCallback(async () => {
     if (!roomId) return;
 
     const {
@@ -122,9 +105,9 @@ export default function RoomDetailPage() {
 
     setRoom(data as Room);
     setLoading(false);
-  }
+  }, [roomId, navigate]);
 
-  async function fetchMembers() {
+  const fetchMembers = useCallback(async () => {
     if (!roomId) return;
 
     const {
@@ -153,9 +136,9 @@ export default function RoomDetailPage() {
     setMembers(
       (data as RoomMember[]) || []
     );
-  }
+  }, [roomId]);
 
-  function subscribeToMembers() {
+  const subscribeToMembers = useCallback(() => {
     if (!roomId) {
       return () => undefined;
     }
@@ -181,7 +164,22 @@ export default function RoomDetailPage() {
         channel
       );
     };
-  }
+  }, [roomId, fetchMembers]);
+
+  useEffect(() => {
+    if (!roomId) {
+      navigate('/rooms');
+      return;
+    }
+
+    void fetchRoom();
+    void fetchMembers();
+
+    const cleanup = subscribeToMembers();
+    return () => {
+      cleanup();
+    };
+  }, [roomId, navigate, fetchRoom, fetchMembers, subscribeToMembers]);
 
   async function joinRoom() {
     if (!user || !roomId) return;

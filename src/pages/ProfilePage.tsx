@@ -28,7 +28,7 @@ interface ProfileData {
   avatar_url: string | null;
   cover_url: string | null;
   bio: string | null;
-  display_id: string;
+  display_id?: number | null;
 }
 
 interface PostData {

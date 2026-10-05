@@ -20,4 +20,22 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment files. Every `.env*` file is ignored so a future `.env.production`
+# or `.env.staging` cannot be committed by accident. `.env.example` is the only
+# exception and must never contain real values.
 .env
+.env.*
+!.env.example
+
+# A bare `env` file (no dot) was found in the working tree holding local Supabase
+# settings. It is not the name Vite reads, but it must not be committed either.
+env
+env.*
+
+# Local logs written during audits/builds
+*.log
+.build.log
+.audit.log
+.dep.log
+.gitfiles.log
