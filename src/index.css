@@ -14,7 +14,8 @@
   }
 
   html, body {
-    @apply bg-[#08080D] text-white;
+    @apply text-white;
+    background-color: var(--bg-base, #08080D);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
     overscroll-behavior: none;
   }

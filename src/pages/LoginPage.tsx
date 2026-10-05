@@ -43,14 +43,15 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden flex items-center justify-center px-4">
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-rose-500/20 blur-[120px] animate-pulse" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] rounded-full bg-orange-500/15 blur-[120px] animate-pulse" style={{ animationDelay: '1s' }} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] rounded-full bg-pink-500/10 blur-[100px]" />
-      </div>
-
-      <div className="absolute inset-0 opacity-[0.08] pointer-events-none" style={{ backgroundImage: 'linear-gradient(rgba(255,60,140,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,60,140,0.5) 1px, transparent 1px)', backgroundSize: '50px 50px', maskImage: 'radial-gradient(ellipse at center, black 30%, transparent 75%)', WebkitMaskImage: 'radial-gradient(ellipse at center, black 30%, transparent 75%)' }} />
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0b090b] px-4 py-10 text-white">
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{ backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(244,63,94,0.14), transparent 56%), linear-gradient(145deg, #10090b 0%, #09090d 58%, #100c08 100%)' }}
+      />
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.035]"
+        style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)', backgroundSize: '56px 56px' }}
+      />
 
       <div className="relative z-10 w-full max-w-[420px] animate-slide-up">
         <div className="flex flex-col items-center mb-8">
@@ -66,12 +67,12 @@ export default function LoginPage() {
           <p className="text-white/50 text-sm mt-2">Welcome back</p>
         </div>
 
-        <div className="relative rounded-3xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-7 shadow-2xl">
+        <div className="relative rounded-2xl border border-white/[0.12] bg-[#111013]/80 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-7">
           <div className="absolute top-0 left-[20%] right-[20%] h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="text-[11px] font-semibold text-white/50 uppercase tracking-widest mb-2 block">
+              <label className="mb-2 block text-[11px] font-semibold uppercase tracking-widest text-white/70">
                 Email
               </label>
               <div className="relative group">
@@ -83,14 +84,15 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
                   autoComplete="email"
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl pl-12 pr-4 py-3.5 text-sm text-white placeholder-white/25 focus:outline-none focus:border-rose-500/60 focus:bg-black/60 focus:ring-4 focus:ring-rose-500/10 transition-all"
+                  dir="ltr"
+                  className="w-full rounded-xl border border-white/[0.14] bg-white/[0.04] py-3.5 pl-12 pr-4 text-left text-sm text-white placeholder:text-white/45 transition-all focus:border-rose-400/70 focus:bg-white/[0.06] focus:outline-none focus:ring-4 focus:ring-rose-500/10"
                 />
               </div>
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] font-semibold text-white/50 uppercase tracking-widest">
+                <label className="text-[11px] font-semibold uppercase tracking-widest text-white/70">
                   Password
                 </label>
                 <Link to="/forgot-password" className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 transition">
@@ -106,7 +108,8 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   autoComplete="current-password"
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl pl-12 pr-12 py-3.5 text-sm text-white placeholder-white/25 focus:outline-none focus:border-rose-500/60 focus:bg-black/60 focus:ring-4 focus:ring-rose-500/10 transition-all"
+                  dir="ltr"
+                  className="w-full rounded-xl border border-white/[0.14] bg-white/[0.04] py-3.5 pl-12 pr-12 text-left text-sm text-white placeholder:text-white/45 transition-all focus:border-rose-400/70 focus:bg-white/[0.06] focus:outline-none focus:ring-4 focus:ring-rose-500/10"
                 />
                 <button
                   type="button"
@@ -127,7 +130,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading || googleLoading}
-              className="w-full bg-gradient-to-r from-rose-500 via-pink-500 to-orange-500 text-white font-semibold py-3.5 rounded-2xl hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-rose-500/20"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 via-pink-500 to-orange-500 py-3.5 font-semibold text-white shadow-lg shadow-rose-500/20 transition hover:brightness-110 disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign In'}
             </button>
@@ -138,7 +141,7 @@ export default function LoginPage() {
               <div className="w-full border-t border-white/10" />
             </div>
             <div className="relative flex justify-center text-[10px] font-semibold tracking-widest">
-              <span className="bg-[#0a0a0a] px-3 text-white/40 uppercase">or continue with</span>
+              <span className="bg-[#111013] px-3 text-white/55 uppercase">or continue with</span>
             </div>
           </div>
 
@@ -146,7 +149,7 @@ export default function LoginPage() {
             type="button"
             onClick={() => void handleGoogle()}
             disabled={googleLoading || loading}
-            className="w-full bg-white text-black font-semibold py-3.5 rounded-2xl hover:bg-neutral-100 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+            className="flex w-full items-center justify-center gap-3 rounded-xl border border-white/[0.14] bg-white/[0.04] py-3.5 font-semibold text-white/90 transition hover:bg-white/[0.08] disabled:opacity-50"
           >
             {googleLoading ? (
               <Loader2 className="w-5 h-5 animate-spin" />
@@ -163,7 +166,7 @@ export default function LoginPage() {
             )}
           </button>
 
-          <div className="mt-6 text-center text-sm text-white/50">
+          <div className="mt-6 text-center text-sm text-white/65">
             Don't have an account?{' '}
             <Link to="/signup" className="text-rose-400 hover:text-rose-300 font-semibold transition">
               Sign up
@@ -171,7 +174,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="mt-6 text-center text-[10px] text-white/20 tracking-widest uppercase">
+        <p className="mt-6 text-center text-[10px] uppercase tracking-widest text-white/40">
           Deep Signal © 2026
         </p>
       </div>

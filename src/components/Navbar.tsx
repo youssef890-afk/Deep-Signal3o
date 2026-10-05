@@ -105,7 +105,7 @@ export default function Navbar({ direction, onToggleDirection }: { direction: 'r
   };
 
   return (
-    <header className="sticky top-0 z-30 h-[68px] border-b border-white/[0.08] bg-[#09090d]/90 px-3 backdrop-blur-2xl sm:px-6">
+    <header className="sticky top-0 z-30 h-[68px] border-b border-white/[0.08] bg-[var(--nav-bg)] px-3 backdrop-blur-2xl sm:px-6">
       <div className="mx-auto grid h-full max-w-[1500px] grid-cols-3 items-center" dir="ltr">
         <div className="relative justify-self-start" dir="rtl">
           <button

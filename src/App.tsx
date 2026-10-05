@@ -53,7 +53,7 @@ function ProtectedLayout({ children }: { children: ReactNode }) {
   }, [direction]);
 
   return (
-    <div className="min-h-screen relative overflow-x-hidden bg-[#08080D] text-white" dir={direction} lang={direction === 'rtl' ? 'ar' : 'en'}>
+    <div className="min-h-screen relative overflow-x-hidden bg-[var(--bg-base)] text-white" dir={direction} lang={direction === 'rtl' ? 'ar' : 'en'}>
       <PageBackground />
       <Sidebar />
       <div className="relative z-10 min-h-screen lg:pl-16 xl:pl-60">

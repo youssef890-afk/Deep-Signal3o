@@ -75,24 +75,28 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#090D16] text-white flex items-center justify-center px-4" dir="rtl">
-      <div className="w-full max-w-md">
-        <div className="rounded-3xl bg-white/[0.03] border border-white/10 p-7 backdrop-blur-xl shadow-2xl">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0b090b] px-4 py-8 text-white" dir="rtl">
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{ backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(244,63,94,0.14), transparent 56%), linear-gradient(145deg, #10090b 0%, #09090d 58%, #100c08 100%)' }}
+      />
+      <div className="relative z-10 w-full max-w-md">
+        <div className="rounded-2xl border border-white/[0.12] bg-[#111013]/80 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-7">
           <button
             onClick={() => navigate('/login')}
-            className="flex items-center gap-2 text-white/50 hover:text-white mb-6 text-sm"
+            className="mb-6 flex items-center gap-2 text-sm text-white/70 transition hover:text-white"
           >
             <ArrowRight className="w-4 h-4" /> رجوع
           </button>
 
           <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center mb-4">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 to-orange-500">
               <Mail className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-cyan-400 bg-clip-text text-transparent">
+            <h1 className="bg-gradient-to-r from-rose-300 to-orange-300 bg-clip-text text-2xl font-bold text-transparent">
               {step === 'email' ? 'نسيت كلمة السر' : 'تحقق من الرمز'}
             </h1>
-            <p className="text-white/50 text-sm mt-2 text-center">
+            <p className="mt-2 text-center text-sm text-white/70">
               {step === 'email'
                 ? 'دخل بريدك الإلكتروني وسنرسل لك رمز التحقق'
                 : `دخل الرمز المُرسل إلى ${email}`}
@@ -108,7 +112,7 @@ export default function ForgotPasswordPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl pr-12 pl-4 py-3.5 text-sm text-white placeholder-white/25 focus:outline-none focus:border-purple-500/60"
+                  className="w-full rounded-xl border border-white/[0.14] bg-white/[0.04] py-3.5 pl-4 pr-12 text-sm text-white placeholder:text-white/45 focus:border-rose-400/70 focus:outline-none focus:ring-4 focus:ring-rose-500/10"
                   dir="ltr"
                 />
               </div>
@@ -122,7 +126,7 @@ export default function ForgotPasswordPage() {
               <button
                 onClick={sendOtp}
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white font-bold py-3.5 rounded-2xl disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 via-pink-500 to-orange-500 py-3.5 font-semibold text-white shadow-lg shadow-rose-500/20 transition hover:brightness-110 disabled:opacity-55"
               >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'إرسال الرمز'}
               </button>
@@ -138,7 +142,7 @@ export default function ForgotPasswordPage() {
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="000000"
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-4 text-center text-2xl font-bold tracking-[0.5em] text-white placeholder-white/25 focus:outline-none focus:border-purple-500/60"
+                  className="w-full rounded-xl border border-white/[0.14] bg-white/[0.04] px-4 py-4 text-center text-2xl font-bold tracking-[0.5em] text-white placeholder:text-white/45 focus:border-rose-400/70 focus:outline-none focus:ring-4 focus:ring-rose-500/10"
                   dir="ltr"
                 />
               </div>
@@ -158,7 +162,7 @@ export default function ForgotPasswordPage() {
               <button
                 onClick={verifyOtp}
                 disabled={loading || otp.length !== 6}
-                className="w-full bg-gradient-to-r from-purple-500 to-cyan-500 text-white font-bold py-3.5 rounded-2xl disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 via-pink-500 to-orange-500 py-3.5 font-semibold text-white shadow-lg shadow-rose-500/20 transition hover:brightness-110 disabled:opacity-55"
               >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'تحقق'}
               </button>
@@ -166,16 +170,16 @@ export default function ForgotPasswordPage() {
               <button
                 onClick={handleResend}
                 disabled={resending}
-                className="w-full text-sm text-purple-400 hover:text-purple-300 disabled:opacity-50 py-2"
+                className="w-full py-2 text-sm text-rose-300 transition hover:text-rose-200 disabled:opacity-50"
               >
                 {resending ? 'جاري الإرسال...' : 'ما وصلكش الرمز؟ أعد الإرسال'}
               </button>
             </div>
           )}
 
-          <div className="mt-6 text-center text-sm text-white/50">
+          <div className="mt-6 text-center text-sm text-white/65">
             تذكرت كلمة السر؟{' '}
-            <Link to="/login" className="text-purple-400 font-semibold">
+            <Link to="/login" className="font-semibold text-rose-300 transition hover:text-rose-200">
               سجل دخول
             </Link>
           </div>
