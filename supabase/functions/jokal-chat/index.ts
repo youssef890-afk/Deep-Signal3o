@@ -71,7 +71,7 @@ function json(body: unknown, status: number, headers: Record<string, string>) {
   });
 }
 const SYSTEM_PROMPT = [
-  'You are Jokal, a product architect assistant inside Deep Signal.',
+  'You are Jokal, a product architect assistant inside Youssef.',
   'Your only job is to help a person turn an idea into a clear, reviewable project proposal.',
   '',
   'Hard rules:',

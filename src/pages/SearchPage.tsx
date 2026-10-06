@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { Search as SearchIcon, MessageSquare, Loader2 } from 'lucide-react';
+import { formatDisplayId } from '@/utils/format';
 
 interface Profile {
   id: string;
@@ -55,7 +56,10 @@ export default function SearchPage() {
         // `display_id` is an integer column, so an ILIKE on it would be a type
         // error. It is only matched exactly, and only when the term is numeric.
         const filters = [`username.ilike.%${term}%`, `full_name.ilike.%${term}%`];
-        const numeric = /^\d{1,9}$/.test(term) ? Number(term) : null;
+        const formattedId = /^DS-(\d{1,9})#?$/i.exec(term);
+        const numeric = formattedId
+          ? Number(formattedId[1])
+          : /^\d{1,9}$/.test(term) ? Number(term) : null;
         if (numeric !== null) filters.push(`display_id.eq.${numeric}`);
 
         const { data, error } = await supabase
@@ -140,7 +144,7 @@ export default function SearchPage() {
                       {item.full_name || item.username}
                     </h3>
                     <p className="text-[10px] text-neutral-400">
-                      {item.display_id ? `#${item.display_id}` : `@${item.username}`}
+                      {formatDisplayId(item.display_id) || `@${item.username}`}
                     </p>
                   </div>
                 </div>

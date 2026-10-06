@@ -20,8 +20,25 @@ interface GameStats {
   todayWins: number;
 }
 
+interface MatchPresence {
+  userId: string;
+  username: string;
+  isHost: boolean;
+  joinedAt: number;
+  capacity: number;
+  boardSize: number;
+}
+
+interface MatchPlayer extends MatchPresence {
+  mark: string;
+}
+
+const playerMarks = ['X', 'O', '△', '□'];
+const playerColors = ['text-purple-400', 'text-cyan-400', 'text-amber-300', 'text-rose-400'];
+
 const gameCatalog = [
-  { name: 'إكس-أو المتقدمة', category: 'ألعاب لوحية', status: 'متاحة', icon: '❌⭕' },
+  { name: 'إكس-أو المتقدمة', category: 'ألعاب لوحية', status: 'متاحة', icon: '❌⭕', href: '#tic-tac-toe' },
+  { name: 'Voice Card Clash', category: 'لعب جماعي', status: 'متاحة', icon: '🎴', href: '/games/voice-card-clash' },
   { name: 'الحنش الملوّن', category: 'أركيد', status: 'قريباً', icon: '🐍' },
   { name: 'بلياردو 8', category: 'رياضة', status: 'قريباً', icon: '🎱' },
   { name: 'Connect Four', category: 'ألعاب لوحية', status: 'قريباً', icon: '🔴' },
@@ -32,16 +49,21 @@ const gameCatalog = [
 ];
 
 export default function GamesPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [board, setBoard] = useState<Array<string | null>>(Array(9).fill(null));
   const [boardSize, setBoardSize] = useState(3);
+  const [roomSize, setRoomSize] = useState(2);
+  const [roomCapacity, setRoomCapacity] = useState(2);
+  const [onlinePlayers, setOnlinePlayers] = useState<MatchPlayer[]>([]);
+  const [currentTurn, setCurrentTurn] = useState(0);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [onlineError, setOnlineError] = useState('');
   const [isXNext, setIsXNext] = useState(true);
   const [vsAI, setVsAI] = useState(true);
   const [onlineMode, setOnlineMode] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [onlineRole, setOnlineRole] = useState<'host' | 'guest' | null>(null);
-  const [opponentConnected, setOpponentConnected] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [leaderboardError, setLeaderboardError] = useState('');
   const [gameStats, setGameStats] = useState<GameStats | null>(null);
@@ -49,6 +71,12 @@ export default function GamesPage() {
   const [copiedCode, setCopiedCode] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const scoreRecordedRef = useRef(false);
+  const boardRef = useRef<Array<string | null>>(Array(9).fill(null));
+  const boardSizeRef = useRef(3);
+  const playersRef = useRef<MatchPlayer[]>([]);
+  const currentTurnRef = useRef(0);
+  const gameStartedRef = useRef(false);
+  const roomCapacityRef = useRef(2);
 
   // حساب الفائز
   const calculateWinner = (squares: Array<string | null>, size: number) => {
@@ -78,8 +106,9 @@ export default function GamesPage() {
 
   const winner = calculateWinner(board, boardSize);
   const isDraw = !winner && board.every((square) => square !== null);
+  const winningPlayer = onlinePlayers.find((player) => player.mark === winner);
   const playerLost = Boolean(winner && (onlineMode
-    ? (winner === 'X') !== (onlineRole === 'host')
+    ? winningPlayer?.userId !== user?.id
     : vsAI && winner === 'O'));
 
   const loadLeaderboard = useCallback(async () => {
@@ -147,65 +176,223 @@ export default function GamesPage() {
   useEffect(() => {
     if ((!winner && !isDraw) || !user || scoreRecordedRef.current) return;
     scoreRecordedRef.current = true;
-    const result = isDraw ? 'draw' : onlineMode && (winner === 'X') !== (onlineRole === 'host') ? 'loss' : 'win';
+    const result = isDraw ? 'draw' : onlineMode && winningPlayer?.userId !== user.id ? 'loss' : 'win';
     const points = result === 'win' ? 5 : result === 'draw' ? 2 : 0;
     void supabase.from('game_scores').insert({ user_id: user.id, game: 'tic-tac-toe', result, points })
       .then(({ error }) => {
         if (error) setLeaderboardError('طبّق migration ديال النقاط باش تتحفظ النتائج.');
         else void loadLeaderboard();
       });
-  }, [isDraw, loadLeaderboard, onlineMode, onlineRole, user, winner]);
+  }, [isDraw, loadLeaderboard, onlineMode, onlinePlayers, user, winner, winningPlayer?.userId]);
 
-  function connectToMatch(code: string, role: 'host' | 'guest', size = boardSize) {
+  function getPresencePlayers(channel: RealtimeChannel) {
+    const present = Object.values(channel.presenceState<MatchPresence>()).flat();
+    const unique = new Map<string, MatchPresence>();
+    for (const player of present) {
+      if (!unique.has(player.userId)) unique.set(player.userId, player);
+    }
+    return [...unique.values()].sort((a, b) => Number(b.isHost) - Number(a.isHost) || a.joinedAt - b.joinedAt || a.userId.localeCompare(b.userId));
+  }
+
+  function updateOnlineSnapshot(nextBoard: Array<string | null>, size: number, turn: number, started: boolean, capacity: number) {
+    boardRef.current = nextBoard;
+    boardSizeRef.current = size;
+    currentTurnRef.current = turn;
+    gameStartedRef.current = started;
+    roomCapacityRef.current = capacity;
+    setBoard(nextBoard);
+    setBoardSize(size);
+    setCurrentTurn(turn);
+    setGameStarted(started);
+    setRoomCapacity(capacity);
+  }
+
+  function publishOnlineSnapshot(nextBoard: Array<string | null>, size: number, turn: number, started: boolean, capacity: number) {
+    updateOnlineSnapshot(nextBoard, size, turn, started, capacity);
+    void channelRef.current?.send({
+      type: 'broadcast',
+      event: 'state',
+      payload: { board: nextBoard, boardSize: size, currentTurn: turn, gameStarted: started, capacity },
+    });
+  }
+
+  function applyOnlineMove(index: number, playerId: string) {
+    const players = playersRef.current;
+    const activePlayer = players[currentTurnRef.current];
+    const currentBoard = boardRef.current;
+    const size = boardSizeRef.current;
+    if (!gameStartedRef.current || !activePlayer || activePlayer.userId !== playerId || currentBoard[index] !== null) return;
+
+    const nextBoard = [...currentBoard];
+    nextBoard[index] = activePlayer.mark;
+    const ended = Boolean(calculateWinner(nextBoard, size)) || nextBoard.every((square) => square !== null);
+    const nextTurn = ended ? currentTurnRef.current : (currentTurnRef.current + 1) % roomCapacityRef.current;
+    publishOnlineSnapshot(nextBoard, size, nextTurn, true, roomCapacityRef.current);
+  }
+
+  function connectToMatch(code: string, role: 'host' | 'guest', size = 3, capacity = 2) {
     if (channelRef.current) void supabase.removeChannel(channelRef.current);
     const channel = supabase.channel(`ttt:${code}`, { config: { broadcast: { self: false } } });
+    let tracked = false;
+
+    const syncPlayers = () => {
+      const present = getPresencePlayers(channel);
+      const host = present.find((player) => player.isHost);
+
+      if (role === 'guest' && tracked && !host) {
+        setOnlineError('مول الغرفة قطع الاتصال، ووقف اللعب. خرج من الغرفة وعاود دخل بكود جديد.');
+        updateOnlineSnapshot(boardRef.current, boardSizeRef.current, currentTurnRef.current, false, roomCapacityRef.current);
+        return;
+      }
+
+      if (role === 'guest' && !tracked) {
+        if (!host) {
+          setOnlineError('الكود ماشي صحيح أو مول الغرفة ما بقاش متصل.');
+          void supabase.removeChannel(channel);
+          if (channelRef.current === channel) channelRef.current = null;
+          return;
+        }
+        if (present.length >= host.capacity) {
+          setOnlineError('هاد الغرفة عامرة. طلب من مولها كود غرفة أخرى.');
+          void supabase.removeChannel(channel);
+          if (channelRef.current === channel) channelRef.current = null;
+          return;
+        }
+        tracked = true;
+        setRoomCapacity(host.capacity);
+        roomCapacityRef.current = host.capacity;
+        setBoardSize(host.boardSize);
+        boardSizeRef.current = host.boardSize;
+        void channel.track({
+          userId: user?.id,
+          username: profile?.username ?? 'لاعب',
+          isHost: false,
+          joinedAt: Date.now(),
+          capacity: host.capacity,
+          boardSize: host.boardSize,
+        });
+        return;
+      }
+
+      const players = present.slice(0, host?.capacity ?? capacity).map((player, index) => ({
+        ...player,
+        mark: playerMarks[index],
+      }));
+      playersRef.current = players;
+      setOnlinePlayers(players);
+
+      if (role === 'host' && host) {
+        if (players.length === host.capacity && !gameStartedRef.current) {
+          const freshBoard = Array(host.boardSize * host.boardSize).fill(null);
+          publishOnlineSnapshot(freshBoard, host.boardSize, 0, true, host.capacity);
+        } else if (players.length < host.capacity && gameStartedRef.current && !winner) {
+          publishOnlineSnapshot(Array(host.boardSize * host.boardSize).fill(null), host.boardSize, 0, false, host.capacity);
+        }
+      }
+    };
+
     channel
-      .on('broadcast', { event: 'joined' }, () => setOpponentConnected(true))
+      .on('presence', { event: 'sync' }, syncPlayers)
       .on('broadcast', { event: 'state' }, ({ payload }) => {
         const nextBoardSize = Number(payload.boardSize);
-        if (!Array.isArray(payload.board) || ![3, 4, 5].includes(nextBoardSize) || payload.board.length !== nextBoardSize * nextBoardSize) return;
-        setBoardSize(nextBoardSize);
-        setBoard(payload.board as Array<string | null>);
-        setIsXNext(Boolean(payload.isXNext));
+        const nextCapacity = Number(payload.capacity);
+        const nextTurn = Number(payload.currentTurn);
+        if (!Array.isArray(payload.board) || ![3, 4, 5].includes(nextBoardSize) || payload.board.length !== nextBoardSize * nextBoardSize || ![2, 3, 4].includes(nextCapacity) || !Number.isInteger(nextTurn)) return;
+        updateOnlineSnapshot(payload.board as Array<string | null>, nextBoardSize, nextTurn, Boolean(payload.gameStarted), nextCapacity);
+      })
+      .on('broadcast', { event: 'move' }, ({ payload }) => {
+        if (role === 'host' && typeof payload.playerId === 'string' && Number.isInteger(payload.index)) {
+          applyOnlineMove(payload.index, payload.playerId);
+        }
       })
       .subscribe((status) => {
-        if (status !== 'SUBSCRIBED') return;
-        if (role === 'guest') {
-          setOpponentConnected(true);
-          void channel.send({ type: 'broadcast', event: 'joined', payload: {} });
+        if (status !== 'SUBSCRIBED') {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            setOnlineError('تعذر الاتصال بالغرفة. تأكد من الإنترنت وإعداد Supabase Realtime، ومن بعد جرّب من جديد.');
+            setInviteCode('');
+            setOnlineRole(null);
+            setOnlineMode(false);
+            if (channelRef.current === channel) channelRef.current = null;
+            void supabase.removeChannel(channel);
+          }
+          return;
+        }
+        if (role === 'host') {
+          const existingHost = getPresencePlayers(channel).some((player) => player.isHost);
+          if (existingHost) {
+            setOnlineError('ما قدرناش ننشئو الغرفة، جرّب من جديد.');
+            void supabase.removeChannel(channel);
+            if (channelRef.current === channel) channelRef.current = null;
+            return;
+          }
+          tracked = true;
+          void channel.track({
+            userId: user?.id,
+            username: profile?.username ?? 'مول الغرفة',
+            isHost: true,
+            joinedAt: Date.now(),
+            capacity,
+            boardSize: size,
+          });
+        } else {
+          syncPlayers();
         }
       });
     channelRef.current = channel;
     setInviteCode(code);
     setOnlineRole(role);
     setOnlineMode(true);
+    setOnlineError('');
+    setRoomCapacity(capacity);
+    roomCapacityRef.current = capacity;
     setBoardSize(size);
+    boardSizeRef.current = size;
     setBoard(Array(size * size).fill(null));
+    boardRef.current = Array(size * size).fill(null);
     setIsXNext(true);
-    setOpponentConnected(role === 'guest');
+    setCurrentTurn(0);
+    currentTurnRef.current = 0;
+    setGameStarted(false);
+    gameStartedRef.current = false;
+    setOnlinePlayers([]);
+    playersRef.current = [];
     scoreRecordedRef.current = false;
   }
 
   function createOnlineMatch() {
     if (!user) return;
     const code = crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase();
-    connectToMatch(code, 'host');
+    const size = roomSize > 2 ? 5 : 3;
+    connectToMatch(code, 'host', size, roomSize);
   }
 
   function joinOnlineMatch() {
     const code = joinCode.trim().toUpperCase();
-    if (code.length !== 6) return;
+    if (code.length !== 6) {
+      setOnlineError('دخل الكود كامل من 6 حروف أو أرقام.');
+      return;
+    }
     connectToMatch(code, 'guest');
   }
 
   function leaveOnlineMatch() {
     if (channelRef.current) void supabase.removeChannel(channelRef.current);
     channelRef.current = null;
+    playersRef.current = [];
+    boardRef.current = Array(9).fill(null);
+    currentTurnRef.current = 0;
+    gameStartedRef.current = false;
     setInviteCode('');
+    setOnlinePlayers([]);
+    setOnlineError('');
+    setGameStarted(false);
     setOnlineRole(null);
     setOnlineMode(false);
-    setOpponentConnected(false);
-    resetGame();
+    setBoard(Array(9).fill(null));
+    setBoardSize(3);
+    setIsXNext(true);
+    setCurrentTurn(0);
+    scoreRecordedRef.current = false;
   }
 
   // حركة الكمبيوتر
@@ -265,7 +452,13 @@ export default function GamesPage() {
 
   const handleClick = (index: number) => {
     if (board[index] || winner) return;
-    if (onlineMode && (!opponentConnected || (isXNext ? onlineRole !== 'host' : onlineRole !== 'guest'))) return;
+    if (onlineMode) {
+      const activePlayer = onlinePlayers[currentTurn];
+      if (!gameStarted || !activePlayer || activePlayer.userId !== user?.id) return;
+      if (onlineRole === 'host') applyOnlineMove(index, user.id);
+      else void channelRef.current?.send({ type: 'broadcast', event: 'move', payload: { index, playerId: user.id } });
+      return;
+    }
 
     const newBoard = [...board];
     const mark = isXNext ? 'X' : 'O';
@@ -288,6 +481,14 @@ export default function GamesPage() {
   };
 
   const resetGame = () => {
+    if (onlineMode) {
+      if (onlineRole !== 'host' || !gameStarted) return;
+      publishOnlineSnapshot(Array(boardSize * boardSize).fill(null), boardSize, 0, true, roomCapacity);
+      scoreRecordedRef.current = false;
+      return;
+    }
+    boardRef.current = Array(boardSize * boardSize).fill(null);
+    setCurrentTurn(0);
     setBoard(Array(boardSize * boardSize).fill(null));
     setIsXNext(true);
     scoreRecordedRef.current = false;
@@ -372,11 +573,12 @@ export default function GamesPage() {
               <h2 className="text-lg font-bold">مكتبة الألعاب</h2>
               <p className="mt-1 text-xs text-white/45">لوحية، أركيد، ورياضة</p>
             </div>
-            <span className="text-xs text-white/40">8 ألعاب</span>
+            <span className="text-xs text-white/40">{gameCatalog.length} ألعاب</span>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {gameCatalog.map((game) => (
-              <article key={game.name} className="min-w-0 rounded-xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">
+              {gameCatalog.map((game) => {
+                const content = (
+                  <>
                 <div className="flex items-center justify-between gap-2">
                   <span aria-hidden="true" className="text-xl">{game.icon}</span>
                   <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] ${game.status === 'متاحة' ? 'bg-emerald-400/10 text-emerald-200' : 'bg-white/[0.06] text-white/40'}`}>
@@ -385,8 +587,19 @@ export default function GamesPage() {
                 </div>
                 <h3 className="mt-3 truncate text-sm font-semibold">{game.name}</h3>
                 <p className="mt-1 text-[11px] text-white/40">{game.category}</p>
-              </article>
-            ))}
+                </>
+              );
+
+              const tileClassName = 'min-w-0 rounded-xl border border-white/10 bg-white/[0.03] p-3 transition hover:border-cyan-300/30 hover:bg-white/[0.06] sm:p-4';
+
+              if (game.href?.startsWith('#')) {
+                return <a key={game.name} href={game.href} className={tileClassName}>{content}</a>;
+              }
+              if (game.href) {
+                return <Link key={game.name} to={game.href} className={tileClassName}>{content}</Link>;
+              }
+              return <article key={game.name} className="min-w-0 rounded-xl border border-white/10 bg-white/[0.03] p-3 sm:p-4">{content}</article>;
+            })}
           </div>
         </section>
 
@@ -427,34 +640,51 @@ export default function GamesPage() {
 
         {onlineMode && (
           <section className="mx-auto max-w-md space-y-3 rounded-2xl border border-emerald-300/15 bg-emerald-300/[0.035] p-4" dir="rtl">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-white/75">عدد اللاعبين فالغرفة</p>
+              <div className="grid grid-cols-3 gap-2" role="group" aria-label="عدد اللاعبين">
+                {[2, 3, 4].map((count) => (
+                  <button key={count} type="button" disabled={onlineRole !== null} onClick={() => setRoomSize(count)} aria-pressed={roomSize === count} className={`rounded-lg border px-3 py-2 text-xs transition disabled:opacity-40 ${roomSize === count ? 'border-emerald-300/50 bg-emerald-300/10 text-emerald-100' : 'border-white/10 bg-white/[0.03] text-white/55'}`}>
+                    {count} لاعبين
+                  </button>
+                ))}
+              </div>
+              {roomSize > 2 && <p className="text-[10px] leading-5 text-white/45">مواجهة جماعية على لوحة 5×5، وربط 4 علامات للفوز.</p>}
+            </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={createOnlineMatch} className="flex-1 rounded-xl bg-emerald-500/15 px-3 py-2.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25">
-                إنشاء مباراة مباشرة
+              <button type="button" onClick={createOnlineMatch} disabled={!user || onlineRole !== null} className="flex-1 rounded-xl bg-emerald-500/15 px-3 py-2.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25 disabled:opacity-40">
+                {onlineRole === 'host' ? 'الغرفة ديالك' : 'إنشاء غرفة'}
               </button>
-              <input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))} maxLength={6} placeholder="كود الدعوة" className="w-28 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-center font-mono text-sm uppercase text-white outline-none focus:border-emerald-300/40" />
-              <button type="button" onClick={joinOnlineMatch} disabled={joinCode.length !== 6} className="rounded-xl bg-white/[0.08] px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-35">
+              <input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))} maxLength={6} placeholder="كود الدعوة" disabled={onlineRole !== null} className="w-28 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-center font-mono text-sm uppercase text-white outline-none focus:border-emerald-300/40 disabled:opacity-40" />
+              <button type="button" onClick={joinOnlineMatch} disabled={joinCode.length !== 6 || onlineRole !== null} className="rounded-xl bg-white/[0.08] px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-35">
                 انضمام
               </button>
             </div>
+            {onlineError && <p role="alert" className="text-xs leading-5 text-rose-200">{onlineError}</p>}
             {onlineRole && (
-              <div className="flex items-center justify-between gap-3 text-xs">
-                <span className={opponentConnected ? 'text-emerald-200' : 'text-amber-200'}>
-                  {opponentConnected ? 'الخصم دخل للمباراة' : 'تسنى اللاعب يدخل بالكود'}
-                </span>
-                <div className="flex items-center gap-2">
-                  <code className="rounded bg-black/30 px-2 py-1 font-mono text-white">{inviteCode}</code>
-                  {onlineRole === 'host' && <button type="button" onClick={() => void handleCopyCode()} aria-label={copiedCode ? 'تم نسخ كود الدعوة' : 'نسخ كود الدعوة'} title={copiedCode ? 'تم النسخ' : 'نسخ الكود'} className="text-white/65 hover:text-white"><Copy className="h-4 w-4" /></button>}
-                  <button type="button" onClick={leaveOnlineMatch} className="text-rose-300 hover:text-rose-200">خروج</button>
+              <>
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <span className={gameStarted ? 'text-emerald-200' : 'text-amber-200'}>
+                    {gameStarted ? 'اللعبة بدات' : `كنستناو اللاعبين: ${onlinePlayers.length}/${roomCapacity}`}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <code className="rounded bg-black/30 px-2 py-1 font-mono text-white">{inviteCode}</code>
+                    {onlineRole === 'host' && <button type="button" onClick={() => void handleCopyCode()} aria-label={copiedCode ? 'تم نسخ كود الدعوة' : 'نسخ كود الدعوة'} title={copiedCode ? 'تم النسخ' : 'نسخ الكود'} className="text-white/65 hover:text-white"><Copy className="h-4 w-4" /></button>}
+                    <button type="button" onClick={leaveOnlineMatch} className="text-rose-300 hover:text-rose-200">خروج</button>
+                  </div>
                 </div>
-              </div>
+                <div className="flex flex-wrap gap-2">
+                  {onlinePlayers.map((player) => <span key={player.userId} className="rounded-md bg-white/[0.05] px-2 py-1 text-[10px] text-white/65">{player.mark} · {player.userId === user?.id ? 'أنت' : player.username}</span>)}
+                </div>
+              </>
             )}
-            <p className="text-[10px] leading-5 text-white/40">المباراة المباشرة تحتاج اتصالاً بالإنترنت وSupabase Realtime.</p>
+            <p className="text-[10px] leading-5 text-white/40">شارك الكود مع اللاعبين. الغرفة كتبدأ ملي يكمل العدد، وخاص مولها يبقى متصل.</p>
           </section>
         )}
         </div>
 
         {/* كارت لعبة إكس - أو (Tic-Tac-Toe) */}
-        <div className="max-w-md mx-auto bg-white/[0.03] border border-white/10 rounded-3xl p-6 backdrop-blur-xl shadow-2xl space-y-6">
+        <div id="tic-tac-toe" className="max-w-md mx-auto scroll-mt-24 bg-white/[0.03] border border-white/10 rounded-3xl p-6 backdrop-blur-xl shadow-2xl space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold flex items-center gap-2">
               ❌⭕ لعبة إكس - أو
@@ -474,42 +704,47 @@ export default function GamesPage() {
           {/* حالة اللعبة */}
           <div className="text-center text-sm font-medium py-2 rounded-xl bg-black/30 border border-white/5">
             {winner ? (
-              <span className="text-emerald-400">الفائز هو: {onlineMode ? winner === 'X' ? 'صاحب الكود' : 'المنضم' : winner} 🎉</span>
+              <span className="text-emerald-400">الفائز هو: {onlineMode ? winningPlayer?.username ?? winner : winner} 🎉</span>
             ) : isDraw ? (
               <span className="text-amber-400">تعادل! 🤝</span>
+            ) : onlineMode && !gameStarted ? (
+              <span className="text-amber-200">كنستناو حتى يكملو اللاعبين باش تبدا اللعبة</span>
             ) : (
               <span className="text-white/70">
-                الدور على: <strong className={isXNext ? 'text-purple-400' : 'text-cyan-400'}>{onlineMode ? (isXNext ? onlineRole === 'host' ? 'أنت (X)' : 'الخصم (X)' : onlineRole === 'guest' ? 'أنت (O)' : 'الخصم (O)') : isXNext ? 'X' : 'O'}</strong>
+                الدور على: <strong className={onlineMode ? playerColors[currentTurn % playerColors.length] : isXNext ? 'text-purple-400' : 'text-cyan-400'}>{onlineMode ? `${onlinePlayers[currentTurn]?.userId === user?.id ? 'أنت' : onlinePlayers[currentTurn]?.username} (${onlinePlayers[currentTurn]?.mark})` : isXNext ? 'X' : 'O'}</strong>
               </span>
             )}
           </div>
 
-          {/* شبكة اللعبة (3x3) */}
+          {onlineMode && roomCapacity > 2 && <p className="text-center text-[11px] text-white/45">{roomCapacity} لاعبين · أول لاعب يربط 4 علامات كيربح</p>}
+
           <div className="grid gap-2 sm:gap-3" style={{ gridTemplateColumns: `repeat(${boardSize}, minmax(0, 1fr))` }}>
-            {board.map((value, index) => (
-              <button
-                key={index}
-                onClick={() => handleClick(index)}
-                disabled={Boolean(
-                  board[index] || winner || (onlineMode && (
-                    !opponentConnected || (isXNext ? onlineRole !== 'host' : onlineRole !== 'guest')
-                  ))
-                )}
-                className={`aspect-square min-h-0 rounded-xl sm:rounded-2xl text-2xl sm:text-3xl font-black flex items-center justify-center transition-all bg-black/40 border border-white/10 hover:border-purple-500/50 hover:bg-white/5 active:scale-95 ${
-                  value === 'X' ? 'text-purple-400' : 'text-cyan-400'
-                }`}
-              >
-                {value}
-              </button>
-            ))}
+            {board.map((value, index) => {
+              const markIndex = onlinePlayers.findIndex((player) => player.mark === value);
+              const markColor = onlineMode
+                ? playerColors[Math.max(markIndex, 0)]
+                : value === 'X' ? playerColors[0] : playerColors[1];
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={() => handleClick(index)}
+                  disabled={Boolean(board[index] || winner || (onlineMode && (!gameStarted || onlinePlayers[currentTurn]?.userId !== user?.id)))}
+                  className={`aspect-square min-h-0 rounded-xl border border-white/10 bg-black/40 text-2xl font-black transition-all hover:border-purple-500/50 hover:bg-white/5 active:scale-95 disabled:cursor-not-allowed sm:rounded-2xl sm:text-3xl ${markColor}`}
+                >
+                  {value}
+                </button>
+              );
+            })}
           </div>
 
           {/* زر إعادة اللعب */}
           <button
             onClick={resetGame}
+            disabled={onlineMode && onlineRole !== 'host'}
             className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 font-medium text-sm transition-all active:scale-98"
           >
-            <RotateCcw className="w-4 h-4" /> إعادة اللعب
+            <RotateCcw className="w-4 h-4" /> {onlineMode ? 'إعادة الجولة (مول الغرفة)' : 'إعادة اللعب'}
           </button>
         </div>
 

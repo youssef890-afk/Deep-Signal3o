@@ -1,4 +1,4 @@
-const CACHE_NAME = 'deep-signal-v4';
+const CACHE_NAME = 'youssef-v4';
 const APP_SHELL = ['/', '/index.html', '/manifest.json'];
 const MAX_CACHED_REQUESTS = 100;
 
@@ -13,7 +13,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((key) => key.startsWith('deep-signal-') && key !== CACHE_NAME).map((key) => caches.delete(key)));
+    await Promise.all(keys.filter((key) => key.startsWith('youssef-') && key !== CACHE_NAME).map((key) => caches.delete(key)));
     await self.clients.claim();
   })());
 });

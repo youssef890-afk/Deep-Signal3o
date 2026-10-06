@@ -62,7 +62,7 @@ export default function LoginPage() {
             </div>
           </div>
           <h1 className="text-4xl font-bold bg-gradient-to-r from-rose-400 via-pink-400 to-orange-400 bg-clip-text text-transparent">
-            Deep Signal
+            Youssef
           </h1>
           <p className="text-white/50 text-sm mt-2">Welcome back</p>
         </div>
@@ -175,7 +175,7 @@ export default function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-[10px] uppercase tracking-widest text-white/40">
-          Deep Signal © 2026
+          Youssef © 2026
         </p>
       </div>
     </div>

@@ -77,7 +77,7 @@ export default function Navbar({ direction, onToggleDirection }: { direction: 'r
           ...likeRows.map((item) => ({ id: `like-${item.id}`, kind: 'like' as const, actor: usernames.get(item.user_id) ?? 'مستخدم', actorId: item.user_id, createdAt: item.created_at, description: 'أعجب بمنشورك' })),
           ...commentRows.map((item) => ({ id: `comment-${item.id}`, kind: 'comment' as const, actor: usernames.get(item.user_id) ?? 'مستخدم', actorId: item.user_id, createdAt: item.created_at, description: 'علّق على منشورك' })),
           ...viewRows.filter((item) => item.viewer_id).map((item) => ({ id: `view-${item.id}`, kind: 'view' as const, actor: usernames.get(item.viewer_id!) ?? 'مستخدم', actorId: item.viewer_id!, createdAt: item.created_at, description: 'زار ملفك الشخصي' })),
-          { id: 'update-welcome', kind: 'update', actor: 'Deep-Signal', createdAt: new Date().toISOString(), description: 'تحديث جديد: تصميم وتجربة Deep-Signal أصبحا أفضل.' },
+          { id: 'update-welcome', kind: 'update', actor: 'Youssef', createdAt: new Date().toISOString(), description: 'تحديث جديد: تصميم وتجربة Youssef أصبحا أفضل.' },
         ];
 
         nextActivities.sort((first, second) => Date.parse(second.createdAt) - Date.parse(first.createdAt));
@@ -85,7 +85,7 @@ export default function Navbar({ direction, onToggleDirection }: { direction: 'r
       } catch (error) {
         console.error('Unable to load notifications:', error);
         if (active) {
-          setActivities([{ id: 'update-welcome', kind: 'update', actor: 'Deep-Signal', createdAt: new Date().toISOString(), description: 'مرحباً بك في Deep-Signal.' }]);
+          setActivities([{ id: 'update-welcome', kind: 'update', actor: 'Youssef', createdAt: new Date().toISOString(), description: 'مرحباً بك في Youssef.' }]);
         }
       } finally {
         if (active) setNotificationsLoading(false);
@@ -154,8 +154,8 @@ export default function Navbar({ direction, onToggleDirection }: { direction: 'r
         </div>
 
         <div className="flex items-center justify-self-center gap-2">
-          <Link to="/feed" className="whitespace-nowrap font-serif text-[19px] font-bold italic text-white sm:text-[22px]" aria-label="Deep-Signal الرئيسية">
-            Deep-Signal
+          <Link to="/feed" className="whitespace-nowrap font-serif text-[19px] font-bold italic text-white sm:text-[22px]" aria-label="Youssef الرئيسية">
+            Youssef
           </Link>
           <button
             type="button"

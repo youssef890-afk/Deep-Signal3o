@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import Avatar from '@/components/Avatar';
 import { DSLogo, DSHome, DSChat, DSSearch, DSRooms } from '@/components/icons/BrandIcons';
-import { Code2, Compass, Gamepad2, LogOut, Clapperboard, X } from 'lucide-react';
+import { Code2, Compass, Gamepad2, LogOut, Clapperboard, Sparkles, X, Settings2 } from 'lucide-react';
 
 export default function Sidebar() {
   const { profile, signOut } = useAuth();
@@ -22,7 +22,7 @@ export default function Sidebar() {
       className={({ isActive }) =>
         `group relative flex items-center gap-4 px-3 xl:px-4 py-3 rounded-xl transition-all duration-200 ${
           isActive
-            ? 'bg-white/[0.08] text-white'
+            ? 'bg-gradient-to-l from-rose-500/20 via-fuchsia-500/10 to-transparent font-bold text-white'
             : 'text-white/55 hover:bg-white/[0.05] hover:text-white'
         }`
       }
@@ -30,23 +30,23 @@ export default function Sidebar() {
       {({ isActive }) => (
         <>
           {isActive && (
-            <span className="absolute left-0 top-1/2 -translate-y-1/2 h-7 w-[3px] rounded-r-full bg-rose-400" />
+            <span className="absolute right-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-l-full bg-rose-400" />
           )}
           <Icon className="w-[22px] h-[22px] shrink-0 transition-transform group-hover:scale-110" />
-          <span className="hidden xl:block text-sm font-medium">{label}</span>
+          <span className="text-sm font-medium">{label}</span>
         </>
       )}
     </NavLink>
   );
 
   return (
-    <aside className="fixed left-0 top-0 z-40 hidden h-dvh w-16 flex-col border-r border-white/[0.08] bg-[#09090d]/95 px-2 py-5 backdrop-blur-2xl lg:flex xl:w-60 xl:px-4">
-      <NavLink to="/feed" aria-label="Deep-Signal الرئيسية" className="mb-9 flex items-center justify-center gap-3 px-2 xl:justify-start">
+    <aside className="sticky top-[70px] h-[calc(100vh-80px)] w-[240px] overflow-y-auto border-l border-white/[0.08] bg-[#09090d]/95 px-3 py-5 backdrop-blur-2xl">
+      <NavLink to="/feed" aria-label="DeepSignal الرئيسية" className="mb-8 flex items-center gap-3 px-2">
         <DSLogo size={40} />
-        <span className="hidden font-serif text-xl font-bold italic text-white xl:block">Deep-Signal</span>
+        <span className="font-serif text-xl font-bold italic text-white">DeepSignal</span>
       </NavLink>
 
-      <nav className="flex-1 space-y-1" aria-label="التنقل الرئيسي">
+      <nav className="space-y-2" aria-label="التنقل الرئيسي">
         {navItem('/feed', DSHome, 'الرئيسية')}
         {navItem('/search', DSSearch, 'البحث')}
         {navItem('/discover', Compass, 'اكتشف')}
@@ -54,6 +54,8 @@ export default function Sidebar() {
         {navItem('/chat', DSChat, 'الرسائل')}
         {navItem('/rooms', DSRooms, 'الغرف الصوتية')}
         {navItem('/games', Gamepad2, 'الألعاب')}
+        {navItem('/jokal', Sparkles, 'تخطيط الأفكار')}
+        {navItem('/settings', Settings2, 'الإعدادات')}
       </nav>
 
       <div className="space-y-2 pt-4 border-t border-white/5">
@@ -61,21 +63,21 @@ export default function Sidebar() {
           onClick={() => setShowParticipationInfo(true)}
           aria-label="شارك في بناء التطبيق"
           title="شارك في بناء التطبيق"
-          className="w-full flex items-center justify-center gap-3 rounded-xl px-3 py-3 text-white/55 transition-all hover:bg-white/5 hover:text-white xl:justify-start xl:px-4"
+          className="w-full flex items-center gap-4 rounded-xl px-3 py-3 text-white/55 transition-all hover:bg-white/5 hover:text-white"
         >
           <Code2 className="h-5 w-5 shrink-0" />
-          <span className="hidden text-sm font-medium xl:block">شارك في بناء التطبيق</span>
+          <span className="text-sm font-medium">شارك في بناء التطبيق</span>
         </button>
-        <button onClick={handleSignOut} aria-label="تسجيل الخروج" className="w-full flex items-center justify-center gap-4 rounded-xl px-3 py-3 text-white/50 transition-all hover:bg-white/5 hover:text-white xl:justify-start xl:px-4">
+        <button onClick={handleSignOut} aria-label="تسجيل الخروج" className="w-full flex items-center gap-4 rounded-xl px-3 py-3 text-white/50 transition-all hover:bg-white/5 hover:text-white">
           <LogOut className="h-5 w-5 shrink-0" />
-          <span className="hidden text-sm font-medium xl:block">تسجيل الخروج</span>
+          <span className="text-sm font-medium">تسجيل الخروج</span>
         </button>
         {profile && (
           <NavLink
             to={`/profile/${profile.id}`}
             aria-label="الملف الشخصي"
             title="الملف الشخصي"
-            className="flex items-center justify-center rounded-xl px-2 py-2 transition-colors hover:bg-white/5 xl:justify-start"
+            className="flex items-center rounded-xl px-2 py-2 transition-colors hover:bg-white/5"
           >
             <Avatar src={profile.avatar_url} name={profile.username} size="sm" />
           </NavLink>

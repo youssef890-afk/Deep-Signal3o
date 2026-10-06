@@ -7,7 +7,7 @@
  * browser and the function can never disagree about the shape of a proposal.
  *
  * Ownership and legal note: Jokal never states that an idea becomes the property
- * of Deep Signal. Ownership terms are data, not code — see `ownership_terms` in
+ * of Youssef. Ownership terms are data, not code — see `ownership_terms` in
  * the proposal and `TERMS_VERSION` below. Nothing here is legal advice.
  */
 

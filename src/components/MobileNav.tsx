@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { useMessages } from '@/context/MessagesContext';
 import { DSHome, DSChat, DSProfile, DSSearch, DSRooms } from '@/components/icons/BrandIcons';
+import { Settings2, Sparkles } from 'lucide-react';
 
 export default function MobileNav() {
   const { profile } = useAuth();
@@ -15,12 +16,15 @@ export default function MobileNav() {
     { path: '/search', Icon: DSSearch, label: 'البحث', badge: 0 },
     { path: '/chat', Icon: DSChat, label: 'الرسائل', badge: unreadCount },
     { path: '/rooms', Icon: DSRooms, label: 'الغرف', badge: 0 },
+    { path: '/jokal', Icon: Sparkles, label: 'الأفكار', badge: 0 },
+    { path: '/settings', Icon: Settings2, label: 'الإعدادات', badge: 0 },
     ...(profile ? [{ path: `/profile/${profile.id}`, Icon: DSProfile, label: 'ملفي', badge: 0 }] : []),
   ];
 
   const isItemActive = (path: string) =>
     location.pathname === path ||
     (path === '/chat' && location.pathname.startsWith('/chat')) ||
+    (path === '/settings' && location.pathname.startsWith('/settings')) ||
     (path.startsWith('/profile') && location.pathname.startsWith('/profile'));
 
   return (

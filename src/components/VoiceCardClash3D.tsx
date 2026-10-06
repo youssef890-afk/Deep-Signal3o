@@ -49,6 +49,13 @@ interface VoiceStatus {
 
 const LIVEKIT_URL = (import.meta.env as ImportMetaEnv & { VITE_LIVEKIT_URL?: string }).VITE_LIVEKIT_URL;
 
+function getRoomRpcErrorMessage(error: { code?: string; message: string }) {
+  if (error.code === 'PGRST202' || error.message.toLowerCase().includes('schema cache')) {
+    return 'إنشاء الغرف مازال ما تفعلش فـSupabase. طبّق migration 20261002160000_voice_card_clash_rooms.sql ومن بعد جرّب.';
+  }
+  return error.message;
+}
+
 function makeRoomCode() {
   return crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase();
 }
@@ -131,6 +138,7 @@ export default function VoiceCardClash3D({ onExit }: VoiceCardClash3DProps) {
   const { user, profile } = useAuth();
   const [roomCode, setRoomCode] = useState('');
   const [joinCode, setJoinCode] = useState('');
+  const [roomActionLoading, setRoomActionLoading] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
   const [mySeat, setMySeat] = useState<number | null>(null);
   const [players, setPlayers] = useState<PresencePlayer[]>([]);
@@ -357,35 +365,49 @@ export default function VoiceCardClash3D({ onExit }: VoiceCardClash3DProps) {
   }, [gameState, syncGameState, user?.id]);
 
   const createRoom = async () => {
-    if (!user) return;
+    if (!user || roomActionLoading) return;
+    setRoomActionLoading(true);
     const newCode = makeRoomCode();
     stateRef.current = null;
     setGameState(null);
     setError('');
-    const { data: seat, error: roomError } = await supabase.rpc('create_voice_card_clash_room', { target_code: newCode });
-    if (roomError) {
-      setError(roomError.message);
-      return;
+    try {
+      const { data: seat, error: roomError } = await supabase.rpc('create_voice_card_clash_room', { target_code: newCode });
+      if (roomError) {
+        setError(getRoomRpcErrorMessage(roomError));
+        return;
+      }
+      setMySeat(Number(seat));
+      setIsOwner(true);
+      setRoomCode(newCode);
+    } catch (roomError) {
+      setError(roomError instanceof Error ? roomError.message : 'تعذر إنشاء الغرفة. حاول مرة أخرى.');
+    } finally {
+      setRoomActionLoading(false);
     }
-    setMySeat(Number(seat));
-    setIsOwner(true);
-    setRoomCode(newCode);
   };
 
   const joinRoom = async () => {
     const code = joinCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
-    if (code.length !== 6) return;
+    if (code.length !== 6 || roomActionLoading) return;
+    setRoomActionLoading(true);
     stateRef.current = null;
     setGameState(null);
     setError('');
-    const { data: seat, error: roomError } = await supabase.rpc('join_voice_card_clash_room', { target_code: code });
-    if (roomError) {
-      setError(roomError.message);
-      return;
+    try {
+      const { data: seat, error: roomError } = await supabase.rpc('join_voice_card_clash_room', { target_code: code });
+      if (roomError) {
+        setError(getRoomRpcErrorMessage(roomError));
+        return;
+      }
+      setMySeat(Number(seat));
+      setIsOwner(false);
+      setRoomCode(code);
+    } catch (roomError) {
+      setError(roomError instanceof Error ? roomError.message : 'تعذر الانضمام للغرفة. حاول مرة أخرى.');
+    } finally {
+      setRoomActionLoading(false);
     }
-    setMySeat(Number(seat));
-    setIsOwner(false);
-    setRoomCode(code);
   };
 
   const leaveRoom = async () => {
@@ -484,6 +506,8 @@ export default function VoiceCardClash3D({ onExit }: VoiceCardClash3DProps) {
         </div>
       </header>
 
+      {error && <p role="alert" className="relative mx-4 mt-4 rounded-lg border border-rose-200/15 bg-rose-200/[0.05] px-3 py-2 text-xs leading-6 text-rose-100/90 sm:mx-6">{error}</p>}
+
       {!roomCode ? (
         <div className="relative mx-auto grid max-w-3xl gap-6 p-5 sm:p-8 md:grid-cols-[1.1fr_0.9fr]">
           <div className="flex flex-col justify-center">
@@ -497,13 +521,13 @@ export default function VoiceCardClash3D({ onExit }: VoiceCardClash3DProps) {
             </div>
           </div>
           <div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-4 sm:p-5">
-            <button type="button" onClick={createRoom} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 px-4 text-sm font-bold text-emerald-950 transition hover:bg-emerald-200"><Radio className="h-4 w-4" /> إنشاء غرفة جديدة</button>
+            <button type="button" onClick={createRoom} disabled={roomActionLoading} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-300 px-4 text-sm font-bold text-emerald-950 transition hover:bg-emerald-200 disabled:cursor-wait disabled:opacity-60"><Radio className="h-4 w-4" />{roomActionLoading ? 'كنوجدو الغرفة...' : 'إنشاء غرفة جديدة'}</button>
             <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.12em] text-white/30"><span className="h-px flex-1 bg-white/10" /> أو انضم بكود <span className="h-px flex-1 bg-white/10" /></div>
             <div className="flex gap-2">
               <input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))} maxLength={6} placeholder="ABC123" aria-label="كود الغرفة" dir="ltr" className="min-w-0 flex-1 rounded-xl border border-white/10 bg-[#090e0e] px-3 text-center font-mono text-sm tracking-[0.16em] text-white outline-none focus:border-emerald-200/40" />
-              <button type="button" onClick={joinRoom} disabled={joinCode.length !== 6} className="rounded-xl border border-white/10 px-4 text-xs font-semibold text-white/75 transition hover:bg-white/[0.06] disabled:opacity-30">انضمام</button>
+              <button type="button" onClick={joinRoom} disabled={joinCode.length !== 6 || roomActionLoading} className="rounded-xl border border-white/10 px-4 text-xs font-semibold text-white/75 transition hover:bg-white/[0.06] disabled:opacity-30">انضمام</button>
             </div>
-            <div className="flex items-center gap-2 border-t border-white/[0.07] pt-3 text-[10px] text-white/35"><Shield className="h-3.5 w-3.5 shrink-0 text-emerald-200/60" /> الصوت يحتاج إعداد LiveKit server-side.</div>
+            <div className="flex items-center gap-2 border-t border-white/[0.07] pt-3 text-[10px] text-white/35"><Shield className="h-3.5 w-3.5 shrink-0 text-emerald-200/60" /> الطاولة كتخدم بلا الصوت؛ الصوت خاصو إعداد LiveKit server-side.</div>
           </div>
         </div>
       ) : (
@@ -582,7 +606,6 @@ export default function VoiceCardClash3D({ onExit }: VoiceCardClash3DProps) {
             {voiceError && <p role="status" className="w-full text-[10px] text-amber-200/75">{voiceError}</p>}
           </section>
 
-          {error && <p role="alert" className="rounded-lg border border-rose-200/15 bg-rose-200/[0.05] px-3 py-2 text-xs text-rose-100/80">{error}</p>}
           <div ref={audioContainerRef} className="hidden" aria-hidden="true" />
         </div>
       )}

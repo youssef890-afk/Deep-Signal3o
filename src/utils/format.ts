@@ -35,3 +35,8 @@ export function getInitials(name: string): string {
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return name.slice(0, 2).toUpperCase();
 }
+
+export function formatDisplayId(displayId: number | null | undefined): string {
+  if (typeof displayId !== 'number' || !Number.isInteger(displayId) || displayId < 1) return '';
+  return `DS-${String(displayId).padStart(4, '0')}#`;
+}

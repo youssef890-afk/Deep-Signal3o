@@ -1,1668 +1,212 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import PostCard, { type PostCardPost } from '@/components/PostCard';
 import { useNavigate } from 'react-router-dom';
-import {
-  Heart,
-  MessageCircle,
-  Share2,
-  Send,
-  FileText,
-  Image as ImageIcon,
-  Video,
-  Music2,
-  Loader2,
-  Plus,
-  ArrowUpRight,
-  Gamepad2,
-} from 'lucide-react';
-import { CreatePostModal } from '@/components/CreatePostModal';
-import PostSummarizer from '@/components/PostSummarizer';
-import SafetyActions from '@/components/SafetyActions';
+import { Plus, Loader2 } from 'lucide-react';
 
-interface UserProfile {
-  id: string;
-  username: string;
-  full_name?: string | null;
-  bio?: string | null;
-  avatar_url: string | null;
-}
+const videoUrls = [
+  'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+  'https://www.w3schools.com/html/mov_bbb.mp4',
+  'https://www.w3schools.com/html/movie.mp4',
+  'https://videos.pexels.com/video-files/3209828/3209828-hd_1920_1080.mp4',
+  'https://videos.pexels.com/video-files/855885/855885-hd_1920_1080.mp4',
+  'https://videos.pexels.com/video-files/856019/856019-hd_1920_1080.mp4',
+];
 
-interface ConnectionProfile extends UserProfile {
-  followedByMe: boolean;
-  followsMe: boolean;
-  latestPostType: 'text' | 'image' | 'video' | 'reel' | 'audio' | null;
-  latestPostAt: string | null;
-  hasRecentPost: boolean;
-}
+export const MOCK_POSTS: PostCardPost[] = Array.from({ length: 20 }, (_, index) => {
+  const isVideo = index >= 14;
+  const seed = (index % 14) + 1;
+  const username = `youssef_${index + 1}`;
+  const createdAt = new Date(Date.now() - (index + 1) * 47 * 60 * 1000).toISOString();
 
-interface Post {
-  id: string;
-  user_id: string;
-  image_url: string | null;
-  video_url: string | null;
-  audio_url: string | null;
-  caption: string | null;
-  created_at: string;
-  post_type?: 'text' | 'image' | 'video' | 'reel';
-  background_style?: string | null;
-  media_urls?: string[];
-  video_type?: 'video' | 'reel' | null;
-
-  profiles?: UserProfile;
-
-  likes_count: number;
-  user_has_liked: boolean;
-}
-
-interface Comment {
-  id: string;
-  content: string;
-  created_at: string;
-  user_id: string;
-
-  profiles?: {
-    username: string;
-    avatar_url: string | null;
+  return {
+    id: `mock-${index + 1}`,
+    type: isVideo ? 'video' : 'image',
+    url: isVideo ? videoUrls[index - 14] : `https://picsum.photos/seed/${seed}/800/800`,
+    userId: `mock-user-${index + 1}`,
+    author: username,
+    avatar: `https://picsum.photos/seed/avatar-${seed}/128/128`,
+    caption: index % 2 === 0
+      ? 'لحظات صغيرة كتخلي النهار أجمل. شاركوني أجمل لقطة عندكم اليوم ✨'
+      : 'نهار جديد، أماكن جديدة، وذكريات كتستاهل تبقى. 🌿',
+    likes: 1234 + index * 37,
+    comments: [
+      { id: `comment-${index}-1`, author: 'sara', text: 'زوين بزاف 😍' },
+      { id: `comment-${index}-2`, author: 'amine', text: 'فين هاد البلاصة؟' },
+      { id: `comment-${index}-3`, author: 'meryem', text: 'التصويرة رائعة!' },
+    ],
+    createdAt,
   };
-}
+});
 
-/*
- * Cache بسيط باش Feed ما يبداش من الصفر
- * كل مرة المستخدم يرجع للصفحة.
- */
-let feedCache: {
-  userId: string;
-  posts: Post[];
-  connections: ConnectionProfile[];
-} | null = null;
-
-function readCachedFeed(userId?: string) {
-  if (!userId) return null;
-  if (feedCache?.userId === userId) return feedCache;
-
-  try {
-    const saved = localStorage.getItem(`ds-feed-v1:${userId}`);
-    if (!saved) return null;
-    const parsed = JSON.parse(saved) as typeof feedCache;
-    return parsed?.userId === userId && Array.isArray(parsed.posts) && Array.isArray(parsed.connections)
-      ? parsed
-      : null;
-  } catch {
-    return null;
-  }
-}
+const stories = ['salma', 'amine', 'sara', 'yassine', 'meryem', 'adam', 'nour'];
+const suggestions = ['lina.photo', 'omar_travels', 'sara.art', 'mehdi.fit', 'nour.daily'];
 
 export default function FeedPage() {
   const { session } = useAuth();
   const user = session?.user ?? null;
   const navigate = useNavigate();
-  const cachedFeed = readCachedFeed(user?.id);
-
-  const [posts, setPosts] = useState<Post[]>(
-    cachedFeed?.posts || []
-  );
-
-  const [connections, setConnections] = useState<ConnectionProfile[]>(() => {
-    const cachedConnections = cachedFeed?.connections ?? [];
-    const followedProfiles = cachedConnections.filter((profile) => profile.followedByMe);
-    return followedProfiles.length > 0
-      ? followedProfiles
-      : cachedConnections.filter((profile) => !profile.followedByMe && !profile.followsMe);
-  });
-  const [followingBusyId, setFollowingBusyId] = useState<string | null>(null);
-  const [quickFollowError, setQuickFollowError] = useState('');
-
+  const [posts, setPosts] = useState<PostCardPost[]>([]);
+  const [loading, setLoading] = useState(true);
   const [feedError, setFeedError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [followedSuggestions, setFollowedSuggestions] = useState<string[]>([]);
+  const [storyNotice, setStoryNotice] = useState(false);
 
-  const [loading, setLoading] = useState(
-    !cachedFeed?.posts.length
-  );
+  useEffect(() => {
+    let isMounted = true;
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  const [activePostId, setActivePostId] =
-    useState<string | null>(null);
-
-  const [comments, setComments] =
-    useState<Comment[]>([]);
-
-  const [newComment, setNewComment] =
-    useState('');
-
-  const [loadingComments, setLoadingComments] =
-    useState(false);
-
-  const loadFeed = useCallback(async () => {
-    if (!user) return;
-
-    /*
-     * إلا كان عندنا Cache:
-     * نخلي البيانات تبان مباشرة
-     * ونحدثها فالخلفية.
-     */
-    setFeedError(null);
-    if (!cachedFeed?.posts.length) {
-      setLoading(true);
-    }
-
-    try {
-      const [followingResult, followersResult] = await Promise.all([
-        supabase.from('follows').select('following_id').eq('follower_id', user.id),
-        supabase.from('follows').select('follower_id').eq('following_id', user.id),
-      ]);
-
-      if (followingResult.error) throw followingResult.error;
-      if (followersResult.error) throw followersResult.error;
-      const followingIds = (followingResult.data ?? []).map((follow) => follow.following_id);
-      const followerIds = (followersResult.data ?? []).map((follow) => follow.follower_id);
-
-      /*
-       * أولاً:
-       * نجيب المستخدم الحالي.
-       *
-       * ثانياً:
-       * نجيب المنشورات.
-       *
-       * بجوج في نفس الوقت.
-       */
-      const postColumnOptions = [
-        'id, user_id, image_url, video_url, audio_url, caption, created_at, post_type, background_style, media_urls, video_type',
-        'id, user_id, image_url, video_url, caption, created_at, post_type, background_style, media_urls, video_type',
-        'id, user_id, image_url, video_url, caption, created_at',
-      ];
-      let postsData: Array<{
-        id: string;
-        user_id: string;
-        image_url: string | null;
-        video_url: string | null;
-        audio_url: string | null;
-        caption: string | null;
-        created_at: string;
-        post_type: Post['post_type'] | null;
-        background_style: string | null;
-        media_urls: string[];
-        video_type: Post['video_type'];
-      }> = [];
-      let postsLoaded = false;
-      let lastPostsError: { code?: string; message?: string } | null = null;
-
-      for (const columns of postColumnOptions) {
-        let postsQuery = supabase
-          .from('posts')
-          .select(columns)
-          .order('created_at', { ascending: false });
-        if (followingIds.length > 0) postsQuery = postsQuery.in('user_id', followingIds);
-
-        const postsResult = await postsQuery.limit(followingIds.length > 0 ? 30 : 100);
-        if (!postsResult.error) {
-          postsData = (postsResult.data ?? []).map((post) => ({
-            audio_url: null,
-            video_url: null,
-            post_type: null,
-            background_style: null,
-            media_urls: [],
-            video_type: null,
-            ...(post as unknown as Record<string, unknown>),
-          })) as unknown as typeof postsData;
-          postsLoaded = true;
-          break;
-        }
-
-        lastPostsError = postsResult.error;
-        if (postsResult.error.code !== '42703') throw postsResult.error;
-      }
-
-      if (!postsLoaded) throw lastPostsError ?? new Error('تعذر جلب المنشورات');
-
-      /*
-       * ---------------------------------------
-       * جلب Profiles ديال أصحاب المنشورات
-       * ---------------------------------------
-       *
-       * كنستخرج غير IDs ديال أصحاب Posts
-       * ومن بعد كنجيب Profiles باستعمال:
-       *
-       * .in('id', postUserIds)
-       *
-       * هكذا كل Post كيتربط مباشرة
-       * بالـ Profile ديال صاحبو.
-       */
-
-      const postUserIds = [
-        ...new Set(
-          postsData
-            .map((post) => post.user_id)
-            .filter(
-              (id): id is string =>
-                Boolean(id)
-            )
-        ),
-      ];
-
-      let postProfiles: UserProfile[] = [];
-
-      if (postUserIds.length > 0) {
-        const profilesResult = await supabase
-          .from('profiles')
-          .select(
-            'id, username, full_name, bio, avatar_url'
-          )
-          .in(
-            'id',
-            postUserIds
-          );
-
-        if (profilesResult.error) {
-          console.error(
-            'Post profiles error:',
-            profilesResult.error
-          );
-        } else {
-          postProfiles =
-            profilesResult.data || [];
-        }
-      }
-
-      /*
-       * ---------------------------------------
-       * Map ديال Profiles
-       * ---------------------------------------
-       *
-       * المفتاح = profile.id
-       *
-       * ومن بعد نقدر نلقاو Profile ديال
-       * كل Post باستعمال post.user_id.
-       */
-
-      const profilesMap = new Map<
-        string,
-        UserProfile
-      >();
-
-      for (const profile of postProfiles) {
-        if (!profile?.id) continue;
-
-        profilesMap.set(
-          profile.id,
-          profile
-        );
-      }
-
-      /*
-       * Debug فقط:
-       * إلا كان شي Post ما عندوش Profile
-       * كنشوفو ID ديالو فالـ console.
-       */
-      /*
-       * ---------------------------------------
-       * جلب Users للاقتراحات
-       * ---------------------------------------
-       */
-      let connectionProfiles: ConnectionProfile[] = [];
-      const followedPeopleResult = followingIds.length > 0
-        ? await supabase.from('profiles')
-            .select('id, username, full_name, bio, avatar_url')
-            .in('id', followingIds)
-        : { data: [], error: null };
-      const suggestedPeopleResult = await supabase.from('profiles')
-        .select('id, username, full_name, bio, avatar_url')
-        .neq('id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(80);
-
-      if (followedPeopleResult.error) console.warn('Followed profiles unavailable:', followedPeopleResult.error);
-      if (suggestedPeopleResult.error) console.warn('Suggested profiles unavailable:', suggestedPeopleResult.error);
-
-      const peopleById = new Map<string, UserProfile>();
-      for (const profile of followedPeopleResult.data ?? []) peopleById.set(profile.id, profile);
-      for (const profile of suggestedPeopleResult.data ?? []) {
-        if (followingIds.includes(profile.id) || followerIds.includes(profile.id)) continue;
-        peopleById.set(profile.id, profile);
-      }
-      const people = [...peopleById.values()].slice(0, 80);
-      const connectionIds = people.map((profile) => profile.id);
-
-      if (connectionIds.length > 0) {
-        const connectionPostsResult = await supabase
-          .from('posts')
-          .select('user_id, post_type, video_url, audio_url, created_at')
-          .in('user_id', connectionIds)
-          .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-          .order('created_at', { ascending: false })
-          .limit(500);
-
-        let connectionPosts = connectionPostsResult.data ?? [];
-        if (connectionPostsResult.error?.code === '42703' && connectionPostsResult.error.message.includes('posts.audio_url')) {
-          const fallbackConnectionPosts = await supabase.from('posts')
-            .select('user_id, post_type, video_url, created_at')
-            .in('user_id', connectionIds)
-            .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-            .order('created_at', { ascending: false })
-            .limit(500);
-          if (fallbackConnectionPosts.error) throw fallbackConnectionPosts.error;
-          connectionPosts = (fallbackConnectionPosts.data ?? []).map((post) => ({ ...post, audio_url: null }));
-        } else if (connectionPostsResult.error) {
-          console.warn('Recent connection posts unavailable:', connectionPostsResult.error);
-          connectionPosts = [];
-        }
-
-        const latestPosts = new Map<string, { type: ConnectionProfile['latestPostType']; createdAt: string }>();
-        for (const post of connectionPosts) {
-          if (latestPosts.has(post.user_id)) continue;
-          const type = post.audio_url
-            ? 'audio'
-            : post.video_url
-            ? post.post_type === 'reel' ? 'reel' : 'video'
-            : post.post_type === 'text' || post.post_type === 'image' || post.post_type === 'reel'
-              ? post.post_type
-              : null;
-          latestPosts.set(post.user_id, { type, createdAt: post.created_at });
-        }
-
-        const freshAfter = Date.now() - 24 * 60 * 60 * 1000;
-        connectionProfiles = people.map((profile) => {
-          const latestPost = latestPosts.get(profile.id);
-          return {
-            ...profile,
-            followedByMe: followingIds.includes(profile.id),
-            followsMe: followerIds.includes(profile.id),
-            latestPostType: latestPost?.type ?? null,
-            latestPostAt: latestPost?.createdAt ?? null,
-            hasRecentPost: Boolean(latestPost && Date.parse(latestPost.createdAt) >= freshAfter),
-          };
-        }).sort((first, second) =>
-          Number(second.hasRecentPost) - Number(first.hasRecentPost) ||
-          Date.parse(second.latestPostAt ?? '') - Date.parse(first.latestPostAt ?? '')
-        );
-      }
-      setConnections(connectionProfiles);
-
-      /*
-       * ---------------------------------------
-       * Likes
-       * ---------------------------------------
-       */
-      const postIds =
-        postsData.map(
-          (post) => post.id
-        );
-
-      let likesData: {
-        post_id: string;
-        user_id: string;
-      }[] = [];
-
-      if (postIds.length > 0) {
-        const likesResult = await supabase
-          .from('likes')
-          .select(
-            'post_id, user_id'
-          )
-          .in(
-            'post_id',
-            postIds
-          );
-
-        if (likesResult.error) {
-          console.error(
-            'Likes error:',
-            likesResult.error
-          );
-        } else {
-          likesData =
-            likesResult.data || [];
-        }
-      }
-
-      /*
-       * ---------------------------------------
-       * تجميع Likes لكل Post
-       * ---------------------------------------
-       */
-      const likesMap = new Map<
-        string,
-        {
-          count: number;
-          likedByCurrentUser: boolean;
-        }
-      >();
-
-      for (const like of likesData) {
-        const existing =
-          likesMap.get(
-            like.post_id
-          ) || {
-            count: 0,
-            likedByCurrentUser: false,
-          };
-
-        existing.count += 1;
-
-        if (
-          like.user_id ===
-          user.id
-        ) {
-          existing.likedByCurrentUser =
-            true;
-        }
-
-        likesMap.set(
-          like.post_id,
-          existing
-        );
-      }
-
-      /*
-       * ---------------------------------------
-       * تجهيز Posts
-       * ---------------------------------------
-       */
-      const formattedPosts: Post[] =
-        postsData.map(
-          (post) => {
-            /*
-             * هنا الربط الحقيقي:
-             *
-             * post.user_id
-             *       ↓
-             * profilesMap
-             *       ↓
-             * profile
-             */
-            const profile =
-              profilesMap.get(
-                post.user_id
-              );
-
-            const likeInfo =
-              likesMap.get(
-                post.id
-              ) || {
-                count: 0,
-                likedByCurrentUser:
-                  false,
-              };
-
-            let mediaUrls: string[] =
-              [];
-
-            if (
-              Array.isArray(
-                post.media_urls
-              )
-            ) {
-              mediaUrls =
-                post.media_urls.filter(
-                  (
-                    url
-                  ): url is string =>
-                    typeof url ===
-                      'string' &&
-                    url.length > 0
-                );
-            }
-
-            return {
-              id: post.id,
-
-              user_id:
-                post.user_id,
-
-              image_url:
-                post.image_url ??
-                null,
-
-              video_url:
-                post.video_url ??
-                null,
-
-              audio_url:
-                post.audio_url ??
-                null,
-
-              caption:
-                post.caption ??
-                null,
-
-              created_at:
-                post.created_at,
-
-              post_type:
-                post.post_type ??
-                'image',
-
-              background_style:
-                post.background_style ??
-                null,
-
-              media_urls:
-                mediaUrls,
-
-              video_type:
-                post.video_type ??
-                null,
-
-              /*
-               * مهم:
-               * ما نصاوبوش Profile وهمي.
-               *
-               * إذا كان Profile موجود:
-               * نستعملو.
-               *
-               * إذا ما كانش موجود:
-               * نخلي profiles undefined.
-               */
-              profiles:
-                profile,
-
-              likes_count:
-                likeInfo.count,
-
-              user_has_liked:
-                likeInfo.likedByCurrentUser,
-            };
-          }
-        );
-
-      const visiblePosts = followingIds.length > 0
-        ? formattedPosts
-        : [...formattedPosts]
-          .sort((first, second) => {
-            const firstAgeHours = Math.max(0, (Date.now() - Date.parse(first.created_at)) / 3_600_000);
-            const secondAgeHours = Math.max(0, (Date.now() - Date.parse(second.created_at)) / 3_600_000);
-            const firstScore = (first.likes_count + 1) / Math.pow(firstAgeHours + 2, 1.3);
-            const secondScore = (second.likes_count + 1) / Math.pow(secondAgeHours + 2, 1.3);
-            return secondScore - firstScore;
-          })
-          .slice(0, 30);
-
-      setPosts(visiblePosts);
-
-      /*
-       * Cache
-       */
-      feedCache = {
-        userId: user.id,
-        posts:
-          visiblePosts,
-        connections:
-          connectionProfiles,
-      };
+    const loadFeed = async () => {
       try {
-        localStorage.setItem(`ds-feed-v1:${user.id}`, JSON.stringify(feedCache));
-      } catch (error) {
-        console.warn('Feed cache storage is unavailable:', error);
-      }
-    } catch (error) {
-      console.error(
-        'Error loading feed:',
-        error
-      );
-      setFeedError('ما قدرناش نحمّلو المنشورات دابا. تحقق من الاتصال وحاول مرة أخرى.');
-    } finally {
-      setLoading(false);
-    }
-  }, [cachedFeed?.posts.length, user]);
+        setLoading(true);
+        setFeedError(null);
 
-  async function handleQuickFollow(profileId: string) {
-    if (!user || followingBusyId) return;
-    setFollowingBusyId(profileId);
-    setQuickFollowError('');
-    const { error } = await supabase.from('follows').insert({
-      follower_id: user.id,
-      following_id: profileId,
-    });
-    if (error) {
-      console.error('Quick follow failed:', error);
-      setQuickFollowError('تعذر متابعة هذا الحساب. حاول مرة أخرى.');
-      setFollowingBusyId(null);
-      return;
-    }
-    await loadFeed();
-    setFollowingBusyId(null);
-  }
-
-  useEffect(() => {
-    if (!user) return;
-    void loadFeed();
-  }, [loadFeed, user]);
-
-  useEffect(() => {
-    const refreshWhenOnline = () => void loadFeed();
-    window.addEventListener('online', refreshWhenOnline);
-    return () => window.removeEventListener('online', refreshWhenOnline);
-  }, [loadFeed]);
-
-  /*
-   * ---------------------------------------
-   * LIKE
-   * ---------------------------------------
-   */
-  async function handleToggleLike(
-    post: Post
-  ) {
-    if (!user) return;
-
-    const previousLiked =
-      post.user_has_liked;
-
-    /*
-     * UI مباشرة
-     */
-    setPosts(
-      (currentPosts) =>
-        currentPosts.map(
-          (item) => {
-            if (
-              item.id !==
-              post.id
-            ) {
-              return item;
-            }
-
-            return {
-              ...item,
-
-              user_has_liked:
-                !previousLiked,
-
-              likes_count:
-                previousLiked
-                  ? Math.max(
-                      0,
-                      item.likes_count -
-                        1
-                    )
-                  : item.likes_count +
-                    1,
-            };
-          }
-        )
-    );
-
-    try {
-      if (previousLiked) {
-        const { error } =
-          await supabase
-            .from('likes')
-            .delete()
-            .eq(
-              'post_id',
-              post.id
-            )
-            .eq(
-              'user_id',
-              user.id
-            );
+        const { data, error } = await supabase
+          .from('posts')
+          .select('id, user_id, image_url, video_url, caption, created_at, likes_count, profiles:profiles(id, username, avatar_url)')
+          .order('created_at', { ascending: false })
+          .limit(40);
 
         if (error) {
           throw error;
         }
-      } else {
-        const { error } =
-          await supabase
-            .from('likes')
-            .insert({
-              post_id:
-                post.id,
-              user_id:
-                user.id,
-            });
 
-        if (error) {
-          throw error;
+        if (!isMounted) {
+          return;
         }
-      }
-    } catch (error) {
-      console.error(
-        'Like error:',
-        error
-      );
 
-      /*
-       * Rollback
-       */
-      setPosts(
-        (currentPosts) =>
-          currentPosts.map(
-            (item) => {
-              if (
-                item.id !==
-                post.id
-              ) {
-                return item;
-              }
-
-              return {
-                ...item,
-
-                user_has_liked:
-                  previousLiked,
-
-                likes_count:
-                  previousLiked
-                    ? item.likes_count +
-                      1
-                    : Math.max(
-                        0,
-                        item.likes_count -
-                          1
-                      ),
-              };
-            }
-          )
-      );
-    }
-  }
-
-  /*
-   * ---------------------------------------
-   * COMMENTS
-   * ---------------------------------------
-   */
-  async function toggleComments(
-    postId: string
-  ) {
-    if (
-      activePostId ===
-      postId
-    ) {
-      setActivePostId(null);
-      return;
-    }
-
-    setActivePostId(
-      postId
-    );
-
-    setLoadingComments(
-      true
-    );
-
-    setComments([]);
-
-    try {
-      const {
-        data,
-        error,
-      } = await supabase
-        .from('comments')
-        .select(
-          '*, profiles(username, avatar_url)'
-        )
-        .eq(
-          'post_id',
-          postId
-        )
-        .order(
-          'created_at',
-          {
-            ascending: true,
-          }
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      setComments(
-        data || []
-      );
-    } catch (error) {
-      console.error(
-        'Comments error:',
-        error
-      );
-    } finally {
-      setLoadingComments(
-        false
-      );
-    }
-  }
-
-  /*
-   * ---------------------------------------
-   * ADD COMMENT
-   * ---------------------------------------
-   */
-  async function handleAddComment(
-    postId: string
-  ) {
-    if (
-      !user ||
-      !newComment.trim()
-    ) {
-      return;
-    }
-
-    const text =
-      newComment.trim();
-
-    try {
-      const {
-        data,
-        error,
-      } = await supabase
-        .from('comments')
-        .insert({
-          post_id:
-            postId,
-          user_id:
-            user.id,
-          content:
-            text,
-        })
-        .select(
-          '*, profiles(username, avatar_url)'
-        )
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      if (data) {
-        setComments(
-          (current) => [
-            ...current,
-            data,
-          ]
-        );
-      }
-
-      setNewComment('');
-    } catch (error) {
-      console.error(
-        'Add comment error:',
-        error
-      );
-    }
-  }
-
-  /*
-   * ---------------------------------------
-   * SHARE
-   * ---------------------------------------
-   */
-  async function handleShare(
-    postId: string
-  ) {
-    const url =
-      `${window.location.origin}/post/${postId}`;
-
-    try {
-      if (
-        navigator.share
-      ) {
-        await navigator.share({
-          title:
-            'Deep Signal',
-
-          text:
-            'شوف هاد المنشور في Deep Signal',
-
-          url,
+        const normalizedPosts: PostCardPost[] = (data ?? []).map((post) => {
+          const profile = Array.isArray(post.profiles) ? post.profiles[0] : post.profiles;
+          const videoUrl = typeof post.video_url === 'string' ? post.video_url : null;
+          return {
+            id: String(post.id),
+            type: videoUrl ? 'video' : 'image',
+            url: videoUrl ?? (typeof post.image_url === 'string' ? post.image_url : ''),
+            userId: String(post.user_id),
+            author: profile && typeof profile.username === 'string' ? profile.username : 'مستخدم',
+            avatar: profile && typeof profile.avatar_url === 'string' ? profile.avatar_url : null,
+            caption: typeof post.caption === 'string' ? post.caption : null,
+            likes: Number(post.likes_count ?? 0),
+            comments: [],
+            createdAt: typeof post.created_at === 'string' ? post.created_at : new Date().toISOString(),
+          };
         });
-      } else {
-        await navigator.clipboard.writeText(
-          url
-        );
 
-        alert(
-          'تم نسخ رابط المنشور'
-        );
+        setPosts(normalizedPosts.length > 0 ? normalizedPosts : MOCK_POSTS);
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+        console.error('Feed load error:', error);
+        setFeedError('مشكل فالتحميل، عاود جرب');
+        setPosts([]);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
-    } catch (error) {
-      if (
-        error instanceof
-          DOMException &&
-        error.name ===
-          'AbortError'
-      ) {
-        return;
-      }
+    };
 
-      console.error(
-        'Share error:',
-        error
-      );
-    }
-  }
-
-  /*
-   * ---------------------------------------
-   * TEXT BACKGROUND
-   * ---------------------------------------
-   */
-  function getTextBackground(
-    style?: string | null
-  ) {
-    switch (style) {
-      case 'sunset':
-        return 'bg-gradient-to-br from-orange-500 via-rose-500 to-purple-600';
-
-      case 'purple':
-        return 'bg-gradient-to-br from-purple-600 via-fuchsia-500 to-pink-500';
-
-      case 'ocean':
-        return 'bg-gradient-to-br from-cyan-500 via-blue-600 to-indigo-700';
-
-      case 'fire':
-        return 'bg-gradient-to-br from-red-600 via-orange-500 to-yellow-500';
-
-      case 'green':
-        return 'bg-gradient-to-br from-emerald-500 via-green-600 to-teal-700';
-
-      case 'dark':
-        return 'bg-gradient-to-br from-neutral-800 via-neutral-900 to-black';
-
-      default:
-        return 'bg-gradient-to-br from-purple-600 to-rose-500';
-    }
-  }
-
-  /*
-   * ---------------------------------------
-   * POST MEDIA
-   * ---------------------------------------
-   */
-  function renderPostMedia(
-    post: Post
-  ) {
-    /*
-     * VIDEO / REEL
-     */
-    if (post.video_url) {
-      return (
-        <div className="w-full bg-black overflow-hidden">
-          <video
-            src={
-              post.video_url
-            }
-            controls
-            playsInline
-            preload="metadata"
-            className="w-full max-h-[600px] object-contain"
-          />
-        </div>
-      );
-    }
-
-    /*
-     * TEXT POST
-     */
-    if (
-      post.post_type ===
-      'text'
-    ) {
-      return (
-        <div
-          className={`min-h-[280px] w-full flex items-center justify-center p-8 text-center ${getTextBackground(
-            post.background_style
-          )}`}
-        >
-          <p className="text-white text-xl font-bold leading-relaxed whitespace-pre-wrap">
-            {
-              post.caption
-            }
-          </p>
-        </div>
-      );
-    }
-
-    /*
-     * IMAGES
-     */
-    const mediaUrls =
-      post.media_urls &&
-      post.media_urls.length >
-        0
-        ? post.media_urls
-        : post.image_url
-        ? [
-            post.image_url,
-          ]
-        : [];
-
-    /*
-     * Multiple images
-     */
-    if (
-      mediaUrls.length >
-      1
-    ) {
-      return (
-        <div className="grid grid-cols-2 gap-1 bg-black">
-          {mediaUrls.map(
-            (
-              url,
-              index
-            ) => (
-              <img
-                key={`${url}-${index}`}
-                src={url}
-                alt={`صورة ${
-                  index + 1
-                }`}
-                loading="lazy"
-                className="w-full aspect-square object-cover"
-              />
-            )
-          )}
-        </div>
-      );
-    }
-
-    /*
-     * Single image
-     */
-    if (
-      mediaUrls.length ===
-      1
-    ) {
-      return (
-        <div className="w-full bg-neutral-950">
-          <img
-            src={
-              mediaUrls[0]
-            }
-            alt="Post"
-            loading="lazy"
-            className="w-full max-h-[600px] object-contain"
-          />
-        </div>
-      );
-    }
-
-    return (
-      <div className="min-h-[100px] bg-neutral-900 flex items-center justify-center text-neutral-500">
-        لا توجد وسائط
-      </div>
-    );
-  }
-
-  /*
-   * ---------------------------------------
-   * LOADING
-   * ---------------------------------------
-   */
-  if (
-    loading &&
-    posts.length === 0
-  ) {
-    return (
-      <div className="min-h-[60vh] text-white">
-        <div className="mx-auto w-full max-w-[680px] px-3 py-5 sm:px-5">
-
-          <div className="h-12 w-40 bg-neutral-900 rounded-xl animate-pulse mb-6" />
-
-          <div className="h-20 bg-neutral-900 rounded-2xl animate-pulse mb-4" />
-
-          <div className="h-80 bg-neutral-900 rounded-2xl animate-pulse" />
-
-        </div>
-      </div>
-    );
-  }
+    void loadFeed();
+    return () => {
+      isMounted = false;
+    };
+  }, [retryCount, user?.id]);
 
   return (
-    <div className="text-white">
-
-      <div className="mx-auto w-full max-w-[680px] px-3 pt-5 pb-28 sm:px-5 lg:pb-8">
-
-        {feedError && posts.length > 0 && (
-          <p role="status" className="mb-4 rounded-lg border border-amber-300/10 bg-amber-300/[0.04] px-3 py-2 text-[10px] text-amber-100/70" dir="rtl">
-            كتشوف آخر نسخة محفوظة؛ التحديث غير متاح دابا.
-          </p>
-        )}
-
-        <section className="mb-4 flex justify-start" dir="rtl" aria-label="إضافة منشور">
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-rose-300/20 bg-rose-400/10 px-3.5 text-xs font-semibold text-rose-100 transition hover:border-rose-300/40 hover:bg-rose-400/15"
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            منشور جديد
-          </button>
-        </section>
-
-        {connections.length > 0 && (
-          <section className="mb-7" dir="rtl" aria-label={connections.some((profile) => profile.followedByMe) ? 'الحسابات التي تتابعها' : 'أشخاص مقترحون'}>
-            <div className="mb-3 flex items-end justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-bold">دائرتك</h2>
-                <p className="mt-1 text-[10px] text-white/40">
-                  {connections.some((profile) => profile.followedByMe) ? 'الحسابات التي تتابعها' : 'اقتراحات من حسابات نشيطة'}
-                </p>
-              </div>
-              <span className="text-[10px] text-white/35">{connections.length} حساب</span>
-            </div>
-
-            <div className="flex snap-x snap-mandatory scroll-smooth gap-4 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {connections.slice(0, 24).map((profile) => {
-                const MediaIcon = profile.latestPostType === 'audio'
-                  ? Music2
-                  : profile.latestPostType === 'video' || profile.latestPostType === 'reel'
-                    ? Video
-                    : profile.latestPostType === 'text'
-                      ? FileText
-                      : ImageIcon;
-                const activityLabel = profile.latestPostType === 'audio'
-                  ? 'تسجيل صوتي جديد'
-                  : profile.latestPostType === 'video' || profile.latestPostType === 'reel'
-                    ? 'فيديو جديد'
-                    : profile.latestPostType === 'text'
-                      ? 'كتابة جديدة'
-                      : profile.latestPostType === 'image'
-                        ? 'صورة جديدة'
-                        : profile.followedByMe ? 'تتابعه' : 'مقترح لك';
-
-                return (
-                  <div
-                    key={profile.id}
-                    className="relative flex w-[76px] shrink-0 snap-start flex-col items-center gap-1.5 text-center"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/profile/${profile.id}`)}
-                      aria-label={`${profile.username}، ${activityLabel}، عرض الملف والمنشورات`}
-                      className="group flex w-full flex-col items-center gap-1.5 text-center"
-                    >
-                      <span className={`relative block h-[66px] w-[66px] rounded-full p-[2.5px] transition-transform group-hover:scale-105 ${profile.hasRecentPost ? 'bg-gradient-to-tr from-rose-500 via-fuchsia-500 to-emerald-400' : 'bg-white/20'}`}>
-                        <span className="flex h-full w-full items-center justify-center rounded-full bg-[#09090d] p-[2px]">
-                          {profile.avatar_url ? (
-                            <img src={profile.avatar_url} alt="" loading="lazy" decoding="async" className="h-full w-full rounded-full object-cover" />
-                          ) : (
-                            <span className="flex h-full w-full items-center justify-center rounded-full bg-white/[0.08] text-lg font-semibold text-white/75">
-                              {profile.username.charAt(0).toUpperCase()}
-                            </span>
-                          )}
-                        </span>
-                        {profile.hasRecentPost && (
-                          <span className="absolute bottom-0 right-0 grid h-6 w-6 place-items-center rounded-full bg-[#111116] text-rose-300 ring-2 ring-[#09090d]">
-                            <MediaIcon className="h-3.5 w-3.5" />
-                          </span>
-                        )}
-                      </span>
-                      <span className="w-full truncate text-[11px] font-medium text-white/85">{profile.username}</span>
-                      <span className={`w-full truncate text-[9px] ${profile.hasRecentPost ? 'text-emerald-300' : 'text-white/40'}`}>
-                        {activityLabel}
-                      </span>
-                    </button>
-                    {!profile.followedByMe && (
-                      <button
-                        type="button"
-                        aria-label={`متابعة ${profile.username}`}
-                        title={`متابعة ${profile.username}`}
-                        disabled={followingBusyId !== null}
-                        onClick={() => void handleQuickFollow(profile.id)}
-                        className="absolute right-1 top-0 grid h-6 w-6 place-items-center rounded-full border-2 border-[#09090d] bg-emerald-400 text-neutral-950 shadow-lg transition hover:scale-110 hover:bg-emerald-300 disabled:opacity-60"
-                      >
-                        {followingBusyId === profile.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            {quickFollowError && <p role="alert" className="mt-2 text-[11px] text-rose-300">{quickFollowError}</p>}
-          </section>
-        )}
-
-        <section
-          aria-label="إعلان من Deep-Signal"
-          dir="rtl"
-          className="relative mb-7 overflow-hidden rounded-2xl border border-emerald-200/20 bg-[linear-gradient(115deg,rgba(12,42,38,0.9),rgba(16,18,24,0.98)_58%,rgba(44,24,39,0.85))] p-4 sm:p-5"
-        >
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <img
-              src="/icon-192.png"
-              alt="Deep-Signal"
-              loading="lazy"
-              className="h-12 w-12 shrink-0 rounded-xl border border-white/10"
-            />
-            <div className="min-w-0 flex-1">
-              <p className="mb-1 text-[10px] font-semibold text-emerald-200/80">إعلان من Deep-Signal</p>
-              <h2 className="text-base font-bold text-white sm:text-lg">تحدّى صحابك في إكس-أو</h2>
-              <p className="mt-1 text-xs leading-6 text-white/60">
-                أنشئ مباراة مباشرة وشارك كود الدعوة. اللعب المباشر يحتاج حساباً واتصالاً بالإنترنت.
-              </p>
-            </div>
+    <div className="min-h-screen text-white" dir="rtl">
+      <div className="mx-auto w-full max-w-[1240px] px-0 pb-24 sm:px-4 lg:pb-8">
+        <div className="sticky top-[64px] z-20 border-b border-white/10 bg-black/90 px-3 py-3 backdrop-blur-xl sm:top-[72px] sm:rounded-b-xl sm:border-x">
+          <div className="flex gap-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" dir="ltr" aria-label="القصص">
             <button
               type="button"
-              onClick={() => navigate('/games')}
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-emerald-200/25 bg-emerald-200/10 px-4 py-2.5 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-200/15"
+              onClick={() => setStoryNotice((current) => !current)}
+              aria-label="أضف قصتك"
+              className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center"
             >
-              جرّب اللعبة
-              <Gamepad2 className="h-4 w-4" aria-hidden="true" />
-              <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-          </div>
-        </section>
-
-        {/* ================================= */}
-        {/* POSTS */}
-        {/* ================================= */}
-
-        <section>
-
-          <div className="flex items-center justify-between mb-4">
-
-            <h2 className="text-base font-bold">
-              {connections.some((profile) => profile.followedByMe) ? 'منشورات المتابعة' : 'مقترحة لك'}
-            </h2>
-
-            {loading && (
-              <span className="text-[10px] text-neutral-500">
-                تحديث...
+              <span className="relative grid h-16 w-16 place-items-center rounded-full border border-white/15 bg-[#151515] text-white transition hover:scale-105">
+                <img src="https://picsum.photos/seed/my-story/128/128" alt="" className="h-full w-full rounded-full object-cover opacity-70" />
+                <span className="absolute bottom-0 right-0 grid h-6 w-6 place-items-center rounded-full border-2 border-black bg-sky-400 text-black"><Plus className="h-4 w-4" /></span>
               </span>
+              <span className="w-full truncate text-[11px] text-white/70" dir="rtl">قصتك</span>
+            </button>
+            {stories.map((story, index) => (
+              <button key={story} type="button" onClick={() => navigate(`/profile/${story}`)} className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center" dir="rtl">
+                <span className="h-16 w-16 rounded-full bg-gradient-to-tr from-yellow-400 via-rose-500 to-fuchsia-600 p-[2px] transition hover:scale-105">
+                  <img src={`https://picsum.photos/seed/story-${index + 1}/128/128`} alt="" className="h-full w-full rounded-full border-2 border-black object-cover" />
+                </span>
+                <span className="w-full truncate text-[11px] text-white/80">{story}</span>
+              </button>
+            ))}
+          </div>
+          {storyNotice && <p className="mt-2 text-center text-xs text-white/55">إضافة القصص قريباً</p>}
+        </div>
+
+        <div className="mx-auto grid w-full max-w-[900px] grid-cols-1 gap-8 pt-4 xl:grid-cols-[minmax(0,600px)_280px] xl:gap-6">
+          <section className="min-w-0" aria-label="المنشورات">
+            {feedError && posts.length === 0 && !loading && (
+              <div role="alert" className="mx-3 rounded-xl border border-rose-400/20 bg-[#111] p-6 text-center sm:mx-0">
+                <p className="text-sm text-rose-200">{feedError}</p>
+                <button type="button" onClick={() => { setLoading(true); setRetryCount((count) => count + 1); }} className="mt-4 rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold transition hover:scale-[1.02] hover:bg-white/15">إعادة المحاولة</button>
+              </div>
             )}
 
-          </div>
-
-          {feedError && posts.length === 0 ? (
-            <div role="alert" className="rounded-2xl border border-rose-400/20 bg-rose-400/[0.06] p-6 text-center">
-              <p className="text-sm text-rose-200">{feedError}</p>
-              <button
-                type="button"
-                onClick={() => void loadFeed()}
-                className="mt-4 rounded-full bg-white/[0.08] px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/[0.14]"
-              >
-                إعادة المحاولة
-              </button>
-            </div>
-          ) : posts.length === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-neutral-950 p-8 text-center">
-
-              <p className="text-neutral-400 text-sm">
-                ما كاين حتى منشور دابا
-              </p>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setIsModalOpen(
-                    true
-                  )
-                }
-                className="mt-4 px-5 py-2.5 rounded-xl bg-rose-500 text-white text-sm font-bold"
-              >
-                إنشاء أول منشور
-              </button>
-
-            </div>
-          ) : (
-            <div className="space-y-5">
-
-              {posts.map(
-                (post) => (
-                  <article
-                    key={
-                      post.id
-                    }
-                    className="rounded-2xl overflow-hidden bg-neutral-950 border border-white/10"
-                  >
-
-                    <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-2.5" dir="rtl">
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
-                      <p className="min-w-0 truncate text-[11px] text-white/60">
-                        <span className="font-semibold text-white/85">{post.profiles?.username || 'مستخدم'}</span>
-                        {' '}قام بإضافة منشور
-                      </p>
-                      <time className="mr-auto shrink-0 text-[10px] text-white/35">
-                        {new Date(post.created_at).toLocaleDateString('ar-MA')}
-                      </time>
-                    </div>
-
-                    {/* POST HEADER */}
-
-                    <div className="flex items-center justify-between p-3">
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          navigate(
-                            `/profile/${post.user_id}`
-                          )
-                        }
-                        className="flex items-center gap-3 min-w-0"
-                      >
-
-                        <div className="w-10 h-10 rounded-full bg-neutral-800 overflow-hidden shrink-0">
-
-                          {post.profiles?.avatar_url ? (
-                            <img
-                              src={
-                                post.profiles.avatar_url
-                              }
-                              alt={
-                                post.profiles.username
-                              }
-                              loading="lazy"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center font-bold">
-                              {post.profiles?.username
-                                ?.charAt(
-                                  0
-                                )
-                                .toUpperCase() ||
-                                'U'}
-                            </div>
-                          )}
-
-                        </div>
-
-                        <div className="text-left min-w-0">
-
-                          <span className="text-sm font-bold truncate block">
-                            {
-                              post.profiles
-                                ?.username ||
-                              'مستخدم'
-                            }
-                          </span>
-
-                          {post.profiles
-                            ?.full_name && (
-                            <span className="text-[10px] text-neutral-500 truncate block">
-                              {
-                                post.profiles
-                                  .full_name
-                              }
-                            </span>
-                          )}
-
-                        </div>
-
-                      </button>
-
-                      {post.user_id !== user?.id && <SafetyActions
-                        targetUserId={post.user_id}
-                        targetPostId={post.id}
-                        onBlocked={() => {
-                          const remainingPosts = posts.filter((item) => item.user_id !== post.user_id);
-                          setPosts(remainingPosts);
-                          setConnections((current) => current.filter((item) => item.id !== post.user_id));
-                          if (user) {
-                            const cached = readCachedFeed(user.id);
-                            if (cached) {
-                              feedCache = { ...cached, posts: remainingPosts };
-                              try {
-                                localStorage.setItem(`ds-feed-v1:${user.id}`, JSON.stringify(feedCache));
-                              } catch (error) {
-                                console.warn('Feed cache storage is unavailable:', error);
-                              }
-                            }
-                          }
-                        }}
-                      />}
-
-                    </div>
-
-                    {/* MEDIA */}
-
-                    {renderPostMedia(
-                      post
-                    )}
-
-                    {/* CAPTION */}
-
-                    {post.caption &&
-                      post.post_type !==
-                        'text' && (
-                        <div className="px-4 pt-3">
-
-                          <p className="text-sm text-neutral-200 whitespace-pre-wrap">
-                            {
-                              post.caption
-                            }
-                          </p>
-
-                        </div>
-                      )}
-
-                    {(post.caption?.length ?? 0) > 180 || post.video_url ? (
-                      <PostSummarizer text={post.caption || ''} />
-                    ) : null}
-
-                    {/* ACTIONS */}
-
-                    <div className="flex items-center gap-2 px-3 pt-3">
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleToggleLike(
-                            post
-                          )
-                        }
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-full transition ${
-                          post.user_has_liked
-                            ? 'text-rose-500 bg-rose-500/10'
-                            : 'text-neutral-300 bg-neutral-900'
-                        }`}
-                      >
-
-                        <Heart
-                          className="w-5 h-5"
-                          fill={
-                            post.user_has_liked
-                              ? 'currentColor'
-                              : 'none'
-                          }
-                        />
-
-                        <span className="text-xs">
-                          {
-                            post.likes_count
-                          }
-                        </span>
-
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void toggleComments(
-                            post.id
-                          )
-                        }
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-neutral-900 text-neutral-300"
-                      >
-
-                        <MessageCircle className="w-5 h-5" />
-
-                        <span className="text-xs">
-                          تعليق
-                        </span>
-
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleShare(
-                            post.id
-                          )
-                        }
-                        className="ml-auto p-2 rounded-full bg-neutral-900 text-neutral-300"
-                      >
-                        <Share2 className="w-5 h-5" />
-                      </button>
-
-                    </div>
-
-                    {/* COMMENTS */}
-
-                    {activePostId ===
-                      post.id && (
-                      <div className="mt-3 border-t border-white/10 p-3">
-
-                        {loadingComments ? (
-                          <p className="text-xs text-neutral-500 text-center py-3">
-                            جاري تحميل التعليقات...
-                          </p>
-                        ) : (
-                          <div className="space-y-3 max-h-60 overflow-y-auto">
-
-                            {comments.length ===
-                            0 ? (
-                              <p className="text-xs text-neutral-500 text-center py-2">
-                                لا توجد تعليقات بعد
-                              </p>
-                            ) : (
-                              comments.map(
-                                (
-                                  comment
-                                ) => (
-                                  <div
-                                    key={
-                                      comment.id
-                                    }
-                                    className="flex gap-2"
-                                  >
-
-                                    <div className="w-7 h-7 rounded-full bg-neutral-800 shrink-0 overflow-hidden">
-
-                                      {comment
-                                        .profiles
-                                        ?.avatar_url ? (
-                                        <img
-                                          src={
-                                            comment
-                                              .profiles
-                                              .avatar_url
-                                          }
-                                          alt=""
-                                          className="w-full h-full object-cover"
-                                        />
-                                      ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-[10px] font-bold">
-                                          {comment
-                                            .profiles
-                                            ?.username
-                                            ?.charAt(
-                                              0
-                                            )
-                                            .toUpperCase() ||
-                                            'U'}
-                                        </div>
-                                      )}
-
-                                    </div>
-
-                                    <div className="bg-neutral-900 rounded-xl px-3 py-2 min-w-0">
-
-                                      <p className="text-[11px] font-bold">
-                                        {
-                                          comment
-                                            .profiles
-                                            ?.username ||
-                                          'مستخدم'
-                                        }
-                                      </p>
-
-                                      <p className="text-xs text-neutral-300 break-words">
-                                        {
-                                          comment.content
-                                        }
-                                      </p>
-
-                                    </div>
-
-                                  </div>
-                                )
-                              )
-                            )}
-
-                          </div>
-                        )}
-
-                        {/* ADD COMMENT */}
-
-                        <form
-                          onSubmit={(
-                            event
-                          ) => {
-                            event.preventDefault();
-
-                            void handleAddComment(
-                              post.id
-                            );
-                          }}
-                          className="flex items-center gap-2 mt-3"
-                        >
-
-                          <input
-                            value={
-                              newComment
-                            }
-                            onChange={(
-                              event
-                            ) =>
-                              setNewComment(
-                                event
-                                  .target
-                                  .value
-                              )
-                            }
-                            placeholder="كتب تعليق..."
-                            className="flex-1 min-w-0 bg-neutral-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-rose-500"
-                          />
-
-                          <button
-                            type="submit"
-                            disabled={
-                              !newComment.trim()
-                            }
-                            className="w-9 h-9 rounded-xl bg-rose-500 disabled:opacity-40 flex items-center justify-center"
-                          >
-                            <Send className="w-4 h-4" />
-                          </button>
-
-                        </form>
-
-                      </div>
-                    )}
-
+            {loading && (
+              <div className="space-y-4 px-3 sm:px-0" aria-label="جاري تحميل المنشورات">
+                {Array.from({ length: 2 }, (_, index) => (
+                  <article key={index} className="animate-pulse overflow-hidden rounded-xl border border-white/10 bg-[#111]">
+                    <div className="flex h-14 items-center gap-3 px-3"><span className="h-9 w-9 rounded-full bg-white/10" /><span className="h-3 w-28 rounded bg-white/10" /></div>
+                    <div className="aspect-square bg-white/[0.06]" />
+                    <div className="space-y-3 p-3"><div className="h-5 w-24 rounded bg-white/10" /><div className="h-3 w-3/4 rounded bg-white/10" /></div>
                   </article>
-                )
-              )}
+                ))}
+              </div>
+            )}
 
+            {!loading && !feedError && posts.length === 0 && (
+              <div className="mx-3 rounded-xl border border-white/10 bg-[#111] p-8 text-center text-sm text-white/60 sm:mx-0">ما كاين حتى منشور</div>
+            )}
+
+            {!loading && posts.length > 0 && (
+              <div className="space-y-4">
+                {posts.map((post) => <PostCard key={post.id} post={post} />)}
+              </div>
+            )}
+          </section>
+
+          <aside className="hidden min-w-0 xl:block" aria-label="اقتراحات المتابعة">
+            <div className="sticky top-[88px] space-y-5">
+              <section className="rounded-xl border border-white/10 bg-[#111] p-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-sm font-bold">مقترح لك</h2>
+                  <button type="button" className="text-xs font-semibold text-sky-300">عرض الكل</button>
+                </div>
+                <div className="space-y-4">
+                  {suggestions.map((username, index) => {
+                    const isFollowed = followedSuggestions.includes(username);
+                    return (
+                      <div key={username} className="flex min-w-0 items-center gap-2" dir="rtl">
+                        <button type="button" onClick={() => navigate(`/profile/${username}`)} className="h-9 w-9 shrink-0 rounded-full ring-1 ring-white/10 transition hover:scale-105">
+                          <img src={`https://picsum.photos/seed/suggestion-${index}/96/96`} alt="" className="h-full w-full rounded-full object-cover" />
+                        </button>
+                        <button type="button" onClick={() => navigate(`/profile/${username}`)} className="min-w-0 flex-1 truncate text-right text-xs font-semibold">{username}</button>
+                        <button type="button" onClick={() => setFollowedSuggestions((current) => isFollowed ? current.filter((name) => name !== username) : [...current, username])} className={`shrink-0 text-xs font-bold transition hover:scale-105 ${isFollowed ? 'text-white/55' : 'text-sky-300'}`}>{isFollowed ? 'متابَع' : 'متابعة'}</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+              <footer className="px-2 text-[11px] leading-6 text-white/35">
+                <nav className="flex flex-wrap gap-x-2" aria-label="روابط مساعدة">
+                  <a href="#about" className="hover:text-white/60">حول</a><a href="#help" className="hover:text-white/60">مساعدة</a><a href="#privacy" className="hover:text-white/60">خصوصية</a><a href="#terms" className="hover:text-white/60">شروط</a>
+                </nav>
+                <p className="mt-2">© 2026 DeepSignal</p>
+              </footer>
             </div>
-          )}
-
-        </section>
-
+          </aside>
+        </div>
       </div>
-
-      {/* CREATE POST MODAL */}
-
-      <CreatePostModal
-        isOpen={
-          isModalOpen
-        }
-        onClose={() =>
-          setIsModalOpen(
-            false
-          )
-        }
-        onPostCreated={() => {
-          setIsModalOpen(
-            false
-          );
-
-          /*
-           * تحديث Feed
-           */
-          void loadFeed();
-        }}
-      />
-
     </div>
   );
-        }
+}

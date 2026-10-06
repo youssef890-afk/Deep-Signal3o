@@ -1,4 +1,4 @@
-# Deep Signal
+# Youssef
 
 A social platform: feed, direct messages with voice notes, voice rooms, reels,
 games (online tic-tac-toe and Voice Card Clash), creator profiles and safety

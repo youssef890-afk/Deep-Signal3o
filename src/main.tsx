@@ -29,7 +29,7 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
     void navigator.serviceWorker.getRegistrations().then(async (registrations) => {
       await Promise.all(registrations.map((registration) => registration.unregister()));
       const cacheNames = await caches.keys();
-      await Promise.all(cacheNames.filter((name) => name.startsWith('deep-signal-')).map((name) => caches.delete(name)));
+      await Promise.all(cacheNames.filter((name) => name.startsWith('youssef-')).map((name) => caches.delete(name)));
     });
   });
 }

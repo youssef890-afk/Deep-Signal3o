@@ -305,7 +305,7 @@ export default function SignupPage() {
             </div>
 
             <h1 className="text-3xl font-bold bg-gradient-to-r from-[#ff2a78] to-[#ff8a3d] bg-clip-text text-transparent">
-              Join Deep Signal
+              Join Youssef
             </h1>
 
             <p className="text-neutral-400 text-sm mt-2">

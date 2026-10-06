@@ -262,7 +262,7 @@ function ReelItem({
     try {
       if (navigator.share) {
         await navigator.share({
-          title: 'Deep Signal Reel',
+          title: 'Youssef Reel',
           text: reel.caption || 'شوف هاد الـReel',
           url,
         });

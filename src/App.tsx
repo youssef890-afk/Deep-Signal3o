@@ -14,6 +14,7 @@ import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import ResetPasswordPage from '@/pages/ResetPasswordPage';
 import AuthCallbackPage from '@/pages/AuthCallbackPage';
 import { Signal, Loader2 } from 'lucide-react';
+import { directionForLanguage, getStoredLanguage, LANGUAGE_CHANGE_EVENT, type Language } from '@/lib/i18n';
 
 /*
  * Route-level code splitting.
@@ -33,6 +34,8 @@ const ReelsPage = lazy(() => import('@/pages/ReelsPage'));
 const RoomDetailPage = lazy(() => import('@/pages/RoomDetailPage'));
 const GamesPage = lazy(() => import('@/pages/GamesPage'));
 const VoiceCardClashPage = lazy(() => import('@/pages/VoiceCardClashPage'));
+const JokalPage = lazy(() => import('@/pages/JokalPage'));
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 function RouteFallback() {
   return (
@@ -45,28 +48,45 @@ function RouteFallback() {
 function ProtectedLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [direction, setDirection] = useState<'rtl' | 'ltr'>(() =>
-    localStorage.getItem('ds-direction') === 'ltr' ? 'ltr' : 'rtl'
+    localStorage.getItem('ds-language')
+      ? directionForLanguage(getStoredLanguage())
+      : localStorage.getItem('ds-direction') === 'ltr' ? 'ltr' : 'rtl'
   );
 
   useEffect(() => {
     localStorage.setItem('ds-direction', direction);
   }, [direction]);
 
+  useEffect(() => {
+    const onLanguageChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ language: Language; direction: 'rtl' | 'ltr' }>).detail;
+      setDirection(detail.direction);
+    };
+    window.addEventListener(LANGUAGE_CHANGE_EVENT, onLanguageChange);
+    return () => window.removeEventListener(LANGUAGE_CHANGE_EVENT, onLanguageChange);
+  }, []);
+
   return (
     <div className="min-h-screen relative overflow-x-hidden bg-[var(--bg-base)] text-white" dir={direction} lang={direction === 'rtl' ? 'ar' : 'en'}>
       <PageBackground />
-      <Sidebar />
-      <div className="relative z-10 min-h-screen lg:pl-16 xl:pl-60">
-        <Navbar direction={direction} onToggleDirection={() => setDirection((current) => current === 'rtl' ? 'ltr' : 'rtl')} />
-        <main className="min-h-[calc(100vh-72px)] pb-[92px] lg:pb-8">
-          <AnimatePresence mode="wait">
-            <div key={location.pathname}>
-              <Suspense fallback={<RouteFallback />}>{children}</Suspense>
-            </div>
-          </AnimatePresence>
-        </main>
+      <div className="mx-auto max-w-[1600px] md:grid md:grid-cols-[240px_minmax(0,1fr)] md:gap-4 lg:gap-6">
+        <div className="hidden md:block">
+          <Sidebar />
+        </div>
+        <div className="relative z-10 min-h-screen">
+          <Navbar direction={direction} onToggleDirection={() => setDirection((current) => current === 'rtl' ? 'ltr' : 'rtl')} />
+          <main className="min-h-[calc(100vh-72px)] pb-[92px] md:pb-8">
+            <AnimatePresence mode="wait">
+              <div key={location.pathname}>
+                <Suspense fallback={<RouteFallback />}>{children}</Suspense>
+              </div>
+            </AnimatePresence>
+          </main>
+        </div>
       </div>
-      <MobileNav />
+      <div className="md:hidden">
+        <MobileNav />
+      </div>
     </div>
   );
 }
@@ -126,11 +146,13 @@ function AuthGate() {
         <Route path="/rooms/:roomId" element={<ProtectedLayout><RoomDetailPage /></ProtectedLayout>} />
         <Route path="/reels" element={<ProtectedLayout><ReelsPage /></ProtectedLayout>} />
         <Route path="/games" element={<ProtectedLayout><GamesPage /></ProtectedLayout>} />
+        <Route path="/jokal" element={<ProtectedLayout><JokalPage /></ProtectedLayout>} />
         <Route path="/games/voice-card-clash" element={<ProtectedLayout><VoiceCardClashPage /></ProtectedLayout>} />
         <Route path="/chat" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
         <Route path="/chat/:userId" element={<ProtectedLayout><ChatPage /></ProtectedLayout>} />
         <Route path="/profile" element={<ProtectedLayout><ProfilePage /></ProtectedLayout>} />
         <Route path="/profile/:userId" element={<ProtectedLayout><ProfilePage /></ProtectedLayout>} />
+        <Route path="/settings" element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} />
         <Route path="*" element={<Navigate to="/feed" replace />} />
       </Routes>
     </MessagesProvider>

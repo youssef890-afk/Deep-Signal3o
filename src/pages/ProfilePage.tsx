@@ -5,6 +5,7 @@ import SettingsPanel from '@/components/SettingsPanel';
 import SafetyActions from '@/components/SafetyActions';
 import { supabase } from '@/lib/supabase';
 import { generateAiImage } from '@/lib/aiAssistant';
+import { formatDisplayId } from '@/utils/format';
 
 import {
   UserPlus,
@@ -705,7 +706,7 @@ export default function ProfilePage() {
                   font-mono
                 "
               >
-                #{profile.display_id}
+                {formatDisplayId(profile.display_id) || `@${profile.username}`}
               </span>
 
             </div>

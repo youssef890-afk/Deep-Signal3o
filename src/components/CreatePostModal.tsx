@@ -489,7 +489,7 @@ export const CreatePostModal: React.FC<CreatePostModalProps> = ({
                 </h2>
 
                 <p className="text-[11px] text-neutral-500">
-                  شارك شيئاً مع مجتمع Deep Signal
+                  شارك شيئاً مع مجتمع Youssef
                 </p>
               </div>
 
